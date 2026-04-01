@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>微信扫码 Demo</title>
+    <script src="https://res.wx.qq.com/open/js/jweixin-1.6.0.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 20px;
+            padding: 40px 30px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            text-align: center;
+            max-width: 400px;
+            width: 100%;
+        }
+
+        .logo {
+            font-size: 64px;
+            margin-bottom: 20px;
+        }
+
+        h1 {
+            color: #333;
+            font-size: 24px;
+            margin-bottom: 10px;
+        }
+
+        .subtitle {
+            color: #666;
+            font-size: 14px;
+            margin-bottom: 30px;
+        }
+
+        .scan-btn {
+            background: linear-gradient(135deg, #07c160 0%, #06ad56 100%);
+            color: white;
+            border: none;
+            padding: 16px 40px;
+            font-size: 18px;
+            border-radius: 30px;
+            cursor: pointer;
+            box-shadow: 0 4px 15px rgba(7, 193, 96, 0.4);
+            transition: all 0.3s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .scan-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(7, 193, 96, 0.5);
+        }
+
+        .scan-btn:active {
+            transform: translateY(0);
+        }
+
+        .scan-btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        .scan-btn svg {
+            width: 24px;
+            height: 24px;
+        }
+
+        .status {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 10px;
+            font-size: 14px;
+            display: none;
+        }
+
+        .status.loading {
+            display: block;
+            background: #f0f9ff;
+            color: #0369a1;
+        }
+
+        .status.error {
+            display: block;
+            background: #fef2f2;
+            color: #dc2626;
+        }
+
+        .status.success {
+            display: block;
+            background: #f0fdf4;
+            color: #16a34a;
+        }
+
+        .demo-notice {
+            margin-top: 20px;
+            padding: 15px;
+            background: #fffbeb;
+            border: 1px solid #fcd34d;
+            border-radius: 10px;
+            font-size: 12px;
+            color: #92400e;
+            display: none;
+        }
+
+        .demo-notice.show {
+            display: block;
+        }
+
+        .manual-input {
+            margin-top: 30px;
+            padding-top: 30px;
+            border-top: 1px solid #eee;
+        }
+
+        .manual-input input {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            font-size: 14px;
+            margin-bottom: 10px;
+        }
+
+        .manual-input button {
+            background: #6366f1;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        .manual-input button:hover {
+            background: #4f46e5;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="logo">📱</div>
+        <h1>微信扫码 Demo</h1>
+        <p class="subtitle">点击下方按钮调起微信扫一扫</p>
+
+        <button class="scan-btn" id="scanBtn" onclick="startScan()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/>
+                <rect x="7" y="7" width="10" height="10" rx="1"/>
+            </svg>
+            扫一扫
+        </button>
+
+        <div class="status" id="status"></div>
+
+        <div class="demo-notice" id="demoNotice">
+            ⚠️ 当前为演示模式<br>
+            请在微信中打开此页面以使用真实的扫码功能
+        </div>
+
+        <div class="manual-input">
+            <p style="margin-bottom: 10px; color: #666; font-size: 14px;">或手动输入二维码内容：</p>
+            <input type="text" id="manualInput" placeholder="输入二维码内容或URL">
+            <button onclick="manualSubmit()">提交</button>
+        </div>
+    </div>
+
+    <script>
+        let isWechatReady = false;
+        let isDemoMode = false;
+
+        // Check if running in WeChat browser
+        function isWechat() {
+            const ua = navigator.userAgent.toLowerCase();
+            return ua.indexOf('micromessenger') !== -1;
+        }
+
+        // Initialize WeChat JS-SDK
+        async function initWechat() {
+            const statusEl = document.getElementById('status');
+            statusEl.className = 'status loading';
+            statusEl.textContent = '正在初始化...';
+
+            try {
+                // Get WeChat config from server
+                const currentUrl = window.location.href.split('#')[0];
+                const response = await fetch(`/api/wechat-config?url=${encodeURIComponent(currentUrl)}`);
+                const config = await response.json();
+
+                if (config.demoMode) {
+                    isDemoMode = true;
+                    document.getElementById('demoNotice').classList.add('show');
+                    statusEl.className = 'status';
+                    statusEl.textContent = '';
+                    return;
+                }
+
+                // Configure WeChat JS-SDK
+                wx.config({
+                    debug: false,
+                    appId: config.appId,
+                    timestamp: config.timestamp,
+                    nonceStr: config.nonceStr,
+                    signature: config.signature,
+                    jsApiList: ['scanQRCode']
+                });
+
+                wx.ready(function() {
+                    isWechatReady = true;
+                    statusEl.className = 'status';
+                    statusEl.textContent = '';
+                    console.log('WeChat JS-SDK initialized successfully');
+                });
+
+                wx.error(function(res) {
+                    console.error('WeChat JS-SDK error:', res);
+                    statusEl.className = 'status error';
+                    statusEl.textContent = '初始化失败: ' + (res.errMsg || '未知错误');
+                });
+            } catch (error) {
+                console.error('Failed to initialize WeChat SDK:', error);
+                statusEl.className = 'status error';
+                statusEl.textContent = '初始化失败: ' + error.message;
+            }
+        }
+
+        // Start QR code scanning
+        function startScan() {
+            if (isDemoMode) {
+                alert('演示模式：请在微信中打开此页面以使用真实扫码功能');
+                return;
+            }
+
+            if (!isWechat()) {
+                alert('请在微信中打开此页面');
+                return;
+            }
+
+            if (!isWechatReady) {
+                alert('微信 SDK 尚未初始化完成，请稍后再试');
+                return;
+            }
+
+            const statusEl = document.getElementById('status');
+            statusEl.className = 'status loading';
+            statusEl.textContent = '正在调起扫码...';
+
+            wx.scanQRCode({
+                needResult: 1, // 0: process by WeChat, 1: return result
+                scanType: ['qrCode'], // can also include 'barCode'
+                success: function(res) {
+                    const result = res.resultStr;
+                    statusEl.className = 'status';
+                    statusEl.textContent = '';
+
+                    // Navigate to result page with scanned content
+                    window.location.href = `result.html?data=${encodeURIComponent(result)}`;
+                },
+                fail: function(res) {
+                    console.error('Scan failed:', res);
+                    statusEl.className = 'status error';
+                    statusEl.textContent = '扫码失败: ' + (res.errMsg || '未知错误');
+                }
+            });
+        }
+
+        // Manual input submit
+        function manualSubmit() {
+            const input = document.getElementById('manualInput').value.trim();
+            if (input) {
+                window.location.href = `result.html?data=${encodeURIComponent(input)}`;
+            } else {
+                alert('请输入二维码内容');
+            }
+        }
+
+        // Handle Enter key in manual input
+        document.getElementById('manualInput').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                manualSubmit();
+            }
+        });
+
+        // Initialize on page load
+        window.onload = function() {
+            if (isWechat()) {
+                initWechat();
+            } else {
+                isDemoMode = true;
+                document.getElementById('demoNotice').classList.add('show');
+            }
+        };
+    </script>
+</body>
+</html>

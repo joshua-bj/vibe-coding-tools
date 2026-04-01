@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>扫码结果</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 20px;
+            padding: 40px 30px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            text-align: center;
+            max-width: 400px;
+            width: 100%;
+        }
+
+        .icon {
+            font-size: 64px;
+            margin-bottom: 20px;
+        }
+
+        h1 {
+            color: #333;
+            font-size: 24px;
+            margin-bottom: 30px;
+        }
+
+        .result-box {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+            word-break: break-all;
+            text-align: left;
+        }
+
+        .result-label {
+            color: #64748b;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 8px;
+        }
+
+        .result-content {
+            color: #1e293b;
+            font-size: 14px;
+            line-height: 1.6;
+            font-family: 'Monaco', 'Menlo', monospace;
+        }
+
+        .result-type {
+            display: inline-block;
+            background: #dbeafe;
+            color: #1e40af;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            margin-bottom: 10px;
+        }
+
+        .btn-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+        }
+
+        .btn {
+            flex: 1;
+            padding: 14px 20px;
+            border: none;
+            border-radius: 10px;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #07c160 0%, #06ad56 100%);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(7, 193, 96, 0.4);
+        }
+
+        .btn-secondary {
+            background: #f1f5f9;
+            color: #475569;
+        }
+
+        .btn-secondary:hover {
+            background: #e2e8f0;
+        }
+
+        .btn-copy {
+            background: #6366f1;
+            color: white;
+        }
+
+        .btn-copy:hover {
+            background: #4f46e5;
+        }
+
+        .copy-toast {
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #1e293b;
+            color: white;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-size: 14px;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            pointer-events: none;
+        }
+
+        .copy-toast.show {
+            opacity: 1;
+        }
+
+        .error-message {
+            background: #fef2f2;
+            border: 1px solid #fecaca;
+            color: #dc2626;
+            padding: 20px;
+            border-radius: 12px;
+            margin-bottom: 20px;
+        }
+
+        .scan-time {
+            color: #94a3b8;
+            font-size: 12px;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="icon">✅</div>
+        <h1>扫码成功</h1>
+
+        <div id="resultContainer">
+            <!-- Result will be inserted here -->
+        </div>
+
+        <div class="btn-group">
+            <button class="btn btn-copy" onclick="copyResult()">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                </svg>
+                复制
+            </button>
+            <a href="index.html" class="btn btn-primary">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/>
+                    <rect x="7" y="7" width="10" height="10" rx="1"/>
+                </svg>
+                继续扫码
+            </a>
+        </div>
+
+        <div class="scan-time" id="scanTime"></div>
+    </div>
+
+    <div class="copy-toast" id="copyToast">已复制到剪贴板</div>
+
+    <script>
+        // Get scanned result from URL
+        function getResultFromUrl() {
+            const urlParams = new URLSearchParams(window.location.search);
+            return urlParams.get('data');
+        }
+
+        // Detect content type
+        function detectContentType(content) {
+            if (!content) return 'unknown';
+
+            // URL
+            if (/^https?:\/\//i.test(content)) {
+                return 'url';
+            }
+
+            // JSON
+            if (content.startsWith('{') || content.startsWith('[')) {
+                try {
+                    JSON.parse(content);
+                    return 'json';
+                } catch (e) {}
+            }
+
+            // Email
+            if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(content)) {
+                return 'email';
+            }
+
+            // Phone number
+            if (/^[\d\s\-+()]{8,}$/.test(content)) {
+                return 'phone';
+            }
+
+            // WiFi
+            if (content.startsWith('WIFI:')) {
+                return 'wifi';
+            }
+
+            // vCard
+            if (content.startsWith('BEGIN:VCARD')) {
+                return 'vcard';
+            }
+
+            return 'text';
+        }
+
+        // Format content for display
+        function formatContent(content, type) {
+            if (type === 'json') {
+                try {
+                    return JSON.stringify(JSON.parse(content), null, 2);
+                } catch (e) {
+                    return content;
+                }
+            }
+            return content;
+        }
+
+        // Get type label
+        function getTypeLabel(type) {
+            const labels = {
+                'url': '网址链接',
+                'json': 'JSON 数据',
+                'email': '电子邮件',
+                'phone': '电话号码',
+                'wifi': 'WiFi 配置',
+                'vcard': '联系人',
+                'text': '文本内容',
+                'unknown': '未知类型'
+            };
+            return labels[type] || '文本内容';
+        }
+
+        // Display result
+        function displayResult() {
+            const data = getResultFromUrl();
+            const container = document.getElementById('resultContainer');
+
+            if (!data) {
+                container.innerHTML = `
+                    <div class="error-message">
+                        未获取到扫码结果<br>
+                        请从首页重新开始
+                    </div>
+                `;
+                return;
+            }
+
+            const type = detectContentType(data);
+            const formattedContent = formatContent(data, type);
+            const typeLabel = getTypeLabel(type);
+
+            let actionButton = '';
+            if (type === 'url') {
+                actionButton = `
+                    <a href="${data}" target="_blank" class="btn btn-secondary" style="margin-top: 10px; text-decoration: none;">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+                            <polyline points="15 3 21 3 21 9"></polyline>
+                            <line x1="10" y1="14" x2="21" y2="3"></line>
+                        </svg>
+                        打开链接
+                    </a>
+                `;
+            } else if (type === 'email') {
+                actionButton = `
+                    <a href="mailto:${data}" class="btn btn-secondary" style="margin-top: 10px; text-decoration: none;">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path>
+                            <polyline points="22,6 12,13 2,6"></polyline>
+                        </svg>
+                        发送邮件
+                    </a>
+                `;
+            } else if (type === 'phone') {
+                actionButton = `
+                    <a href="tel:${data}" class="btn btn-secondary" style="margin-top: 10px; text-decoration: none;">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path>
+                        </svg>
+                        拨打电话
+                    </a>
+                `;
+            }
+
+            container.innerHTML = `
+                <div class="result-type">${typeLabel}</div>
+                <div class="result-box">
+                    <div class="result-label">扫描结果</div>
+                    <div class="result-content">${escapeHtml(formattedContent)}</div>
+                </div>
+                ${actionButton}
+            `;
+        }
+
+        // Escape HTML to prevent XSS
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Copy result to clipboard
+        function copyResult() {
+            const data = getResultFromUrl();
+            if (data) {
+                navigator.clipboard.writeText(data).then(() => {
+                    const toast = document.getElementById('copyToast');
+                    toast.classList.add('show');
+                    setTimeout(() => {
+                        toast.classList.remove('show');
+                    }, 2000);
+                }).catch(err => {
+                    // Fallback for older browsers
+                    const textArea = document.createElement('textarea');
+                    textArea.value = data;
+                    document.body.appendChild(textArea);
+                    textArea.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(textArea);
+
+                    const toast = document.getElementById('copyToast');
+                    toast.classList.add('show');
+                    setTimeout(() => {
+                        toast.classList.remove('show');
+                    }, 2000);
+                });
+            }
+        }
+
+        // Display scan time
+        function displayScanTime() {
+            const now = new Date();
+            const timeStr = now.toLocaleString('zh-CN', {
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit'
+            });
+            document.getElementById('scanTime').textContent = `扫描时间: ${timeStr}`;
+        }
+
+        // Initialize
+        displayResult();
+        displayScanTime();
+    </script>
+</body>
+</html>
