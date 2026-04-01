@@ -1,4 +1,5 @@
 wechat-scan-qr/package-lock.json
+wechat-scan-qr/certs
 keep-vpn-alive/nohup.out
 **/node_modules/**
 weixin-scan-test/**

@@ -1,11 +1,30 @@
 require('dotenv').config();
 const express = require('express');
+const https = require('https');
+const fs = require('fs');
 const axios = require('axios');
 const crypto = require('crypto');
 const path = require('path');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const HTTPS_PORT = process.env.HTTPS_PORT || 443;
+const ENABLE_HTTPS = process.env.ENABLE_HTTPS !== 'false'; // Default to true
+
+// Load SSL certificates
+let sslOptions = null;
+if (ENABLE_HTTPS) {
+  try {
+    sslOptions = {
+      key: fs.readFileSync(path.join(__dirname, 'certs', 'server.key')),
+      cert: fs.readFileSync(path.join(__dirname, 'certs', 'server.crt'))
+    };
+    console.log('[INFO] SSL certificates loaded successfully');
+  } catch (err) {
+    console.error('[ERROR] Failed to load SSL certificates:', err.message);
+    console.log('[INFO] Falling back to HTTP only');
+  }
+}
 
 // Serve static files
 app.use(express.static('public'));
@@ -145,12 +164,34 @@ app.get('/api/wechat-config', async (req, res) => {
 });
 
 // Start server
-app.listen(PORT, () => {
-  console.log(`Server is running on http://localhost:${PORT}`);
+function startServer() {
   console.log('');
   console.log('='.repeat(50));
   console.log('WeChat QR Scanner Demo');
   console.log('='.repeat(50));
+
+  if (sslOptions) {
+    // Start HTTPS server
+    https.createServer(sslOptions, app).listen(HTTPS_PORT, () => {
+      console.log(`[HTTPS] Server is running on https://localhost:${HTTPS_PORT}`);
+    });
+
+    // Also start HTTP server for redirect (on different port)
+    const http = require('http');
+    http.createServer((req, res) => {
+      const host = req.headers.host ? req.headers.host.split(':')[0] : 'localhost';
+      res.writeHead(301, { Location: `https://${host}:${HTTPS_PORT}${req.url}` });
+      res.end();
+    }).listen(PORT, () => {
+      console.log(`[HTTP] Redirect server running on http://localhost:${PORT} -> HTTPS`);
+    });
+  } else {
+    // Fallback to HTTP only
+    app.listen(PORT, () => {
+      console.log(`[HTTP] Server is running on http://localhost:${PORT}`);
+    });
+  }
+
   if (!WECHAT_APP_ID || !WECHAT_APP_SECRET) {
     console.log('Running in DEMO mode');
     console.log('To use with real WeChat, create .env file with:');
@@ -160,4 +201,6 @@ app.listen(PORT, () => {
     console.log('Running with WeChat App ID:', WECHAT_APP_ID);
   }
   console.log('='.repeat(50));
-});
+}
+
+startServer();
