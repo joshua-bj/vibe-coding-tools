@@ -72,8 +72,8 @@ wechat-scan-qr/
 ├── .env.example        # 环境变量示例
 ├── README.md           # 说明文档
 └── public/
-    ├── index.html      # 首页（扫码入口）
-    └── result.html     # 结果页（显示扫描结果）
+    ├── index.html      # 首页（扫码入口)
+    └── result.html     # 结果页(显示扫描结果)
 ```
 
 ## 技术栈
@@ -91,25 +91,6 @@ wechat-scan-qr/
 3. 将应用部署到配置的域名下
 4. 服务器需要支持 HTTPS（微信要求）
 
-## API 说明
-
-### GET /api/wechat-config
-
-获取微信 JS-SDK 配置信息。
-
-**参数:**
-- `url` - 当前页面的完整 URL（不包括 # 部分）
-
-**返回:**
-```json
-{
-  "appId": "wx...",
-  "timestamp": 1234567890,
-  "nonceStr": "abc123",
-  "signature": "..."
-}
-```
-
 ## 本地测试
 
 由于微信 JS-SDK 需要在微信浏览器中使用，本地开发测试可以使用：
@@ -119,44 +100,24 @@ wechat-scan-qr/
 
 ## 常见问题
 
-### 1. 错误："invalid url rid: xxx"
-
-**原因**：JS 接口安全域名未配置或配置不正确
-
-**解决方法**：
-1. 登录微信公众平台，配置 JS 接口安全域名
-2. 下载验证文件 `MP_verify_xxxxx.txt`，放到 `public/` 目录
-3. 确保验证文件可以通过 `http://your-domain/MP_verify_xxxxx.txt` 访问
-4. 域名格式：
-   - ✅ 正确：`example.com` 或 `192.168.1.100`
-   - ❌ 错误：`http://example.com`、`example.com:3000`
-5. 如果使用 IP 地址，确保手机和服务器在同一局域网
-
-### 2. 提示"invalid signature"
+### 1. 提示"invalid signature"
 
 - 检查 JS 接口安全域名是否配置正确
+- 磀查域名格式是否正确（不带 http:// 和端口）
 - 确认 URL 参数是完整的页面 URL
 - 检查 AppID 和 AppSecret 是否正确
-- 确保系统时间准确
 
-### 3. 扫码无反应
+### 2. 扫码无反应
 
 - 确认在微信浏览器中打开
 - 检查公众号是否有扫码权限
 - 查看控制台错误信息
 
-### 4. 无法获取 access token
+### 3. 无法获取 access token
 
 - 检查 AppID 和 AppSecret 是否正确
 - 确认服务器 IP 是否在白名单中
-- 检查网络连接（可能需要代理）
-
-### 5. 微信开发者工具调试
-
-可以使用微信开发者工具进行本地调试：
-1. 下载 [微信开发者工具](https://developers.weixin.qq.com/miniprogram/dev/devtools/download.html)
-2. 选择"公众号网页调试"
-3. 输入本地地址进行测试
+- 检查网络连接
 
 ## License
 

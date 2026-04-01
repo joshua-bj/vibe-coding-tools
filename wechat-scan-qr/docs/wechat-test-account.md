@@ -75,55 +75,11 @@ Find your main network adapter (Ethernet or Wi-Fi) IPv4 address.
    - Open WeChat
    - Visit: `http://YOUR_WINDOWS_IP:3080`
 
-3. Check server logs:
-   - The server will log the domain being used
-   - Verify the domain matches what you configured in Step 3
-
-## Common Issues
-
-### Issue 1: "invalid url rid: xxx"
-
-**Cause**: JS接口安全域名 not configured or doesn't match
-
-**Solution**:
-1. Check server logs for "Domain:" output
-2. Make sure this domain is configured in test account settings
-3. Domain must match exactly (no http://, no port)
-
-Example server output:
-```
-==================================================
-WeChat Config Request
-==================================================
-Page URL: http://192.168.1.100:3080/
-Domain: 192.168.1.100
-Port: 3080
-```
-
-In this case, you need to configure `192.168.1.100` in test account.
-
-### Issue 2: Cannot access from phone
-
-**Check**:
-1. Phone and computer are on same WiFi network
-2. Windows firewall allows port 3080
-3. Server is running
-
-### Issue 3: "invalid signature"
-
-**Cause**: URL mismatch or time sync issue
-
-**Solution**:
-1. Make sure system time is accurate
-2. Check that the URL in browser matches the URL sent to server
-3. Clear browser cache and retry
-
 ## Test Account Limitations
 
 - Test accounts have most API permissions enabled
 - No ICP filing required
 - Can use IP addresses for testing
-- May have some rate limits
 - Perfect for development and testing
 
 ## Debug Mode
