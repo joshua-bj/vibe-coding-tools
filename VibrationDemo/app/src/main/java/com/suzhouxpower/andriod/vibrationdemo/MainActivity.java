@@ -16,6 +16,7 @@ import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 
 import com.github.mikephil.charting.charts.LineChart;
+import com.github.mikephil.charting.components.LimitLine;
 import com.github.mikephil.charting.components.XAxis;
 import com.github.mikephil.charting.components.YAxis;
 import com.github.mikephil.charting.data.Entry;
@@ -45,6 +46,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         super.onCreate(savedInstanceState);
         EdgeToEdge.enable(this);
         setContentView(R.layout.activity_main);
+        getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main), (v, insets) -> {
             Insets systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars());
             v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom);
@@ -151,8 +153,48 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
 
         data.notifyDataChanged();
         chart.notifyDataSetChanged();
+        updateMinMaxLines(setX, setY, setZ);
         chart.setVisibleXRangeMaximum(MAX_DATA_POINTS);
         chart.moveViewToX(dataIndex - MAX_DATA_POINTS);
+    }
+
+    private void updateMinMaxLines(LineDataSet setX, LineDataSet setY, LineDataSet setZ) {
+        float max = Float.MIN_VALUE;
+        float min = Float.MAX_VALUE;
+
+        for (Entry e : setX.getValues()) {
+            if (e.getY() > max) max = e.getY();
+            if (e.getY() < min) min = e.getY();
+        }
+        for (Entry e : setY.getValues()) {
+            if (e.getY() > max) max = e.getY();
+            if (e.getY() < min) min = e.getY();
+        }
+        for (Entry e : setZ.getValues()) {
+            if (e.getY() > max) max = e.getY();
+            if (e.getY() < min) min = e.getY();
+        }
+
+        if (max == Float.MIN_VALUE || min == Float.MAX_VALUE) return;
+
+        YAxis leftAxis = chart.getAxisLeft();
+        leftAxis.removeAllLimitLines();
+
+        LimitLine maxLine = new LimitLine(max, String.format("Max: %.2f", max));
+        maxLine.enableDashedLine(10f, 10f, 0f);
+        maxLine.setLineColor(Color.parseColor("#FF6600"));
+        maxLine.setTextColor(Color.parseColor("#FF6600"));
+        maxLine.setLineWidth(1f);
+        maxLine.setTextSize(10f);
+        leftAxis.addLimitLine(maxLine);
+
+        LimitLine minLine = new LimitLine(min, String.format("Min: %.2f", min));
+        minLine.enableDashedLine(10f, 10f, 0f);
+        minLine.setLineColor(Color.parseColor("#9933CC"));
+        minLine.setTextColor(Color.parseColor("#9933CC"));
+        minLine.setLineWidth(1f);
+        minLine.setTextSize(10f);
+        leftAxis.addLimitLine(minLine);
     }
 
     @Override
