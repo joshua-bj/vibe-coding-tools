@@ -180,6 +180,13 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         YAxis leftAxis = chart.getAxisLeft();
         leftAxis.removeAllLimitLines();
 
+        LimitLine zeroLine = new LimitLine(0f, "X Axis");
+        zeroLine.setLineColor(Color.GRAY);
+        zeroLine.setTextColor(Color.GRAY);
+        zeroLine.setLineWidth(2f);
+        zeroLine.setTextSize(10f);
+        leftAxis.addLimitLine(zeroLine);
+
         LimitLine maxLine = new LimitLine(max, String.format("Max: %.2f", max));
         maxLine.enableDashedLine(10f, 10f, 0f);
         maxLine.setLineColor(Color.parseColor("#FF6600"));
