@@ -1,8 +1,13 @@
 <resources>
     <string name="app_name">VibrationDemo</string>
+    <string name="tab_accelerometer">Accelerometer</string>
+    <string name="tab_rms">RMS</string>
     <string name="title_accelerometer">Accelerometer Data</string>
     <string name="x_default">X: 0.00</string>
     <string name="y_default">Y: 0.00</string>
     <string name="z_default">Z: 0.00</string>
     <string name="freq_default">0 Hz</string>
+    <string name="rms_x_default">RMS X: 0.00</string>
+    <string name="rms_y_default">RMS Y: 0.00</string>
+    <string name="rms_z_default">RMS Z: 0.00</string>
 </resources>
