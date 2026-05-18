@@ -64,7 +64,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
 
         sensorManager = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
         if (sensorManager != null) {
-            accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
+            accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_LINEAR_ACCELERATION);
         }
     }
 
@@ -123,11 +123,11 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
 
     @Override
     public void onSensorChanged(SensorEvent event) {
-        if (event.sensor.getType() != Sensor.TYPE_ACCELEROMETER) return;
+        if (event.sensor.getType() != Sensor.TYPE_LINEAR_ACCELERATION) return;
 
         float x = event.values[0];
         float y = event.values[1];
-        float z = event.values[2] - SensorManager.GRAVITY_EARTH;
+        float z = event.values[2];
 
         tvX.setText(String.format(Locale.US, "X: %.2f", x));
         tvY.setText(String.format(Locale.US, "Y: %.2f", y));
