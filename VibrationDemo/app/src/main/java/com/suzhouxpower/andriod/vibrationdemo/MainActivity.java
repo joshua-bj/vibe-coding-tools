@@ -25,6 +25,7 @@ import com.github.mikephil.charting.data.LineDataSet;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 public class MainActivity extends AppCompatActivity implements SensorEventListener {
 
@@ -128,9 +129,9 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         float y = event.values[1];
         float z = event.values[2] - SensorManager.GRAVITY_EARTH;
 
-        tvX.setText(String.format("X: %.2f", x));
-        tvY.setText(String.format("Y: %.2f", y));
-        tvZ.setText(String.format("Z: %.2f", z));
+        tvX.setText(String.format(Locale.US, "X: %.2f", x));
+        tvY.setText(String.format(Locale.US, "Y: %.2f", y));
+        tvZ.setText(String.format(Locale.US, "Z: %.2f", z));
 
         LineData data = chart.getData();
         if (data == null) return;
@@ -187,7 +188,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         zeroLine.setTextSize(10f);
         leftAxis.addLimitLine(zeroLine);
 
-        LimitLine maxLine = new LimitLine(max, String.format("Max: %.2f", max));
+        LimitLine maxLine = new LimitLine(max, String.format(Locale.US, "Max: %.2f", max));
         maxLine.enableDashedLine(10f, 10f, 0f);
         maxLine.setLineColor(Color.parseColor("#FF6600"));
         maxLine.setTextColor(Color.parseColor("#FF6600"));
@@ -195,7 +196,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         maxLine.setTextSize(10f);
         leftAxis.addLimitLine(maxLine);
 
-        LimitLine minLine = new LimitLine(min, String.format("Min: %.2f", min));
+        LimitLine minLine = new LimitLine(min, String.format(Locale.US, "Min: %.2f", min));
         minLine.enableDashedLine(10f, 10f, 0f);
         minLine.setLineColor(Color.parseColor("#9933CC"));
         minLine.setTextColor(Color.parseColor("#9933CC"));
