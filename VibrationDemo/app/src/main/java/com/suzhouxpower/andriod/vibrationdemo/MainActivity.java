@@ -23,7 +23,9 @@ import com.github.mikephil.charting.data.Entry;
 import com.github.mikephil.charting.data.LineData;
 import com.github.mikephil.charting.data.LineDataSet;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
 import java.util.List;
 import java.util.Locale;
 
@@ -35,12 +37,14 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     private Sensor accelerometer;
 
     private LineChart chart;
-    private TextView tvX, tvY, tvZ;
+    private TextView tvX, tvY, tvZ, tvFreq;
 
     private final List<Entry> xEntries = new ArrayList<>();
     private final List<Entry> yEntries = new ArrayList<>();
     private final List<Entry> zEntries = new ArrayList<>();
     private int dataIndex = 0;
+    private static final long FREQ_WINDOW_NS = 60_000_000_000L; // 1 minute
+    private final Deque<Long> freqTimestamps = new ArrayDeque<>();
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -57,6 +61,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         tvX = findViewById(R.id.tvX);
         tvY = findViewById(R.id.tvY);
         tvZ = findViewById(R.id.tvZ);
+        tvFreq = findViewById(R.id.tvFreq);
         chart = findViewById(R.id.chart);
 
         setupChart();
@@ -132,6 +137,18 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         tvX.setText(String.format(Locale.US, "X: %.2f", x));
         tvY.setText(String.format(Locale.US, "Y: %.2f", y));
         tvZ.setText(String.format(Locale.US, "Z: %.2f", z));
+
+        long now = System.nanoTime();
+        freqTimestamps.addLast(now);
+        while (!freqTimestamps.isEmpty() && now - freqTimestamps.peekFirst() > FREQ_WINDOW_NS) {
+            freqTimestamps.removeFirst();
+        }
+        if (freqTimestamps.size() >= 2) {
+            float spanSec = (now - freqTimestamps.peekFirst()) / 1_000_000_000f;
+            if (spanSec > 0) {
+                tvFreq.setText(String.format(Locale.US, "%.0f Hz", freqTimestamps.size() / spanSec));
+            }
+        }
 
         LineData data = chart.getData();
         if (data == null) return;

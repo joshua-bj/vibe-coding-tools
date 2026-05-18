@@ -54,6 +54,17 @@
             android:textSize="14sp"
             android:textStyle="bold"
             android:gravity="center" />
+
+        <TextView
+            android:id="@+id/tvFreq"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="@string/freq_default"
+            android:textColor="#FF9800"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            android:gravity="center" />
     </LinearLayout>
 
     <com.github.mikephil.charting.charts.LineChart
