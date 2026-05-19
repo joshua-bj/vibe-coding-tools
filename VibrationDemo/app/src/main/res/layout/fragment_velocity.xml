@@ -47,6 +47,13 @@
             android:gravity="center" />
     </LinearLayout>
 
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btnToggleHp"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="8dp"
+        android:textAllCaps="false" />
+
     <com.github.mikephil.charting.charts.LineChart
         android:id="@+id/velChart"
         android:layout_width="match_parent"

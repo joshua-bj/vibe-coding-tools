@@ -10,6 +10,7 @@ import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.Button;
 import android.widget.TextView;
 
 import androidx.annotation.NonNull;
@@ -38,6 +39,9 @@ public class VelocityFragment extends Fragment implements SensorEventListener {
 
     private LineChart chart;
     private TextView tvVelX, tvVelY, tvVelZ;
+    private Button btnToggleHp;
+
+    private boolean hpEnabled = true;
 
     private int dataIndex = 0;
     private long prevTimeNs = 0;
@@ -64,6 +68,19 @@ public class VelocityFragment extends Fragment implements SensorEventListener {
         tvVelY = view.findViewById(R.id.tvVelY);
         tvVelZ = view.findViewById(R.id.tvVelZ);
         chart = view.findViewById(R.id.velChart);
+        btnToggleHp = view.findViewById(R.id.btnToggleHp);
+
+        updateHpButtonText();
+        btnToggleHp.setOnClickListener(v -> {
+            hpEnabled = !hpEnabled;
+            updateHpButtonText();
+            highPassFilter.reset();
+            velX = velY = velZ = 0;
+            prevTimeNs = 0;
+            windowStartNs = 0;
+            sumVelX2 = sumVelY2 = sumVelZ2 = 0;
+            sampleCount = 0;
+        });
 
         setupChart();
         initChartData();
@@ -153,14 +170,24 @@ public class VelocityFragment extends Fragment implements SensorEventListener {
         float dtSec = (now - prevTimeNs) / 1_000_000_000f;
         prevTimeNs = now;
 
-        // Step 1: High-pass filter
-        highPassFilter.update(dtSec);
-        float[] filtered = highPassFilter.apply(rawX, rawY, rawZ);
+        // Step 1: High-pass filter (if enabled)
+        float ax, ay, az;
+        if (hpEnabled) {
+            highPassFilter.update(dtSec);
+            float[] filtered = highPassFilter.apply(rawX, rawY, rawZ);
+            ax = filtered[0];
+            ay = filtered[1];
+            az = filtered[2];
+        } else {
+            ax = rawX;
+            ay = rawY;
+            az = rawZ;
+        }
 
         // Step 2: Integrate acceleration -> velocity (m/s)
-        velX += filtered[0] * dtSec;
-        velY += filtered[1] * dtSec;
-        velZ += filtered[2] * dtSec;
+        velX += ax * dtSec;
+        velY += ay * dtSec;
+        velZ += az * dtSec;
 
         // Step 3: Accumulate squared velocity for 1-second RMS window
         sumVelX2 += velX * velX;
@@ -211,6 +238,12 @@ public class VelocityFragment extends Fragment implements SensorEventListener {
             sumVelX2 = sumVelY2 = sumVelZ2 = 0;
             sampleCount = 0;
         }
+    }
+
+    private void updateHpButtonText() {
+        btnToggleHp.setText(hpEnabled
+                ? String.format(Locale.US, "High-Pass Filter: ON (%.1f Hz)", HP_CUTOFF_HZ)
+                : "High-Pass Filter: OFF");
     }
 
     private void updateMinMaxLines(LineDataSet setX, LineDataSet setY, LineDataSet setZ) {
