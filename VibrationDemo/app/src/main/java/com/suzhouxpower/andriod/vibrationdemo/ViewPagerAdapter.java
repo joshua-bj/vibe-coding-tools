@@ -14,14 +14,15 @@ public class ViewPagerAdapter extends FragmentStateAdapter {
     @NonNull
     @Override
     public Fragment createFragment(int position) {
-        if (position == 1) {
-            return new RmsFragment();
+        switch (position) {
+            case 1: return new RmsFragment();
+            case 2: return new VelocityFragment();
+            default: return new AccelerometerFragment();
         }
-        return new AccelerometerFragment();
     }
 
     @Override
     public int getItemCount() {
-        return 2;
+        return 3;
     }
 }

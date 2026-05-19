@@ -32,7 +32,13 @@ public class MainActivity extends AppCompatActivity {
 
         viewPager.setAdapter(new ViewPagerAdapter(this));
         new TabLayoutMediator(tabLayout, viewPager,
-                (tab, position) -> tab.setText(position == 0 ? R.string.tab_accelerometer : R.string.tab_rms)
+                (tab, position) -> {
+                    switch (position) {
+                        case 0: tab.setText(R.string.tab_accelerometer); break;
+                        case 1: tab.setText(R.string.tab_rms); break;
+                        case 2: tab.setText(R.string.tab_velocity); break;
+                    }
+                }
         ).attach();
     }
 }
