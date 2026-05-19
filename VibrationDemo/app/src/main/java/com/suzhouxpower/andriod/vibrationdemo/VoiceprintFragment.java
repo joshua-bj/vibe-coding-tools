@@ -26,6 +26,7 @@ import com.github.mikephil.charting.components.YAxis;
 import com.github.mikephil.charting.data.BarData;
 import com.github.mikephil.charting.data.BarDataSet;
 import com.github.mikephil.charting.data.BarEntry;
+import com.github.mikephil.charting.formatter.ValueFormatter;
 
 import java.util.ArrayList;
 import java.util.Locale;
@@ -89,11 +90,26 @@ public class VoiceprintFragment extends Fragment {
         leftAxis.setDrawGridLines(true);
         leftAxis.setTextColor(Color.WHITE);
         leftAxis.setTextSize(11f);
+        leftAxis.setValueFormatter(new ValueFormatter() {
+            @Override
+            public String getFormattedValue(float value) {
+                return String.format(Locale.US, "%.1f", value);
+            }
+        });
 
-        chart.getAxisRight().setEnabled(true);
-        chart.getAxisRight().setDrawGridLines(false);
-        chart.getAxisRight().setDrawAxisLine(false);
-        chart.getAxisRight().setDrawLabels(false);
+        YAxis rightAxis = chart.getAxisRight();
+        rightAxis.setEnabled(true);
+        rightAxis.setDrawGridLines(false);
+        rightAxis.setTextColor(Color.WHITE);
+        rightAxis.setTextSize(11f);
+        rightAxis.setValueFormatter(new ValueFormatter() {
+            @Override
+            public String getFormattedValue(float value) {
+                if (value <= 0) return "-∞ dB";
+                float db = 20f * (float) Math.log10(value);
+                return String.format(Locale.US, "%.0f dB", db);
+            }
+        });
         chart.getLegend().setEnabled(false);
 
         BarDataSet set = new BarDataSet(new ArrayList<>(), "Magnitude");

@@ -75,12 +75,17 @@ public class RmsFragment extends Fragment implements SensorEventListener {
         xl.setPosition(XAxis.XAxisPosition.BOTTOM);
         xl.setDrawGridLines(false);
         xl.setGranularity(1f);
+        xl.setTextColor(Color.WHITE);
+        xl.setTextSize(11f);
 
         YAxis leftAxis = chart.getAxisLeft();
         leftAxis.setDrawGridLines(true);
+        leftAxis.setTextColor(Color.WHITE);
+        leftAxis.setTextSize(11f);
 
         chart.getAxisRight().setEnabled(false);
         chart.getLegend().setEnabled(true);
+        chart.getLegend().setTextColor(Color.WHITE);
     }
 
     private void initChartData() {
