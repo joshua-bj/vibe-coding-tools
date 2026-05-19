@@ -70,6 +70,7 @@ public class VoiceprintFragment extends Fragment {
     private void setupChart() {
         chart.getDescription().setText("Frequency Spectrum (Hz)");
         chart.getDescription().setTextSize(12f);
+        chart.getDescription().setTextColor(Color.WHITE);
         chart.setDrawGridBackground(false);
         chart.setPinchZoom(true);
         chart.setFitBars(true);
@@ -78,12 +79,21 @@ public class VoiceprintFragment extends Fragment {
         xl.setPosition(XAxis.XAxisPosition.BOTTOM);
         xl.setDrawGridLines(false);
         xl.setGranularity(50f);
-        xl.setLabelCount(8);
+        xl.setLabelCount(9);
+        xl.setAxisMinimum(0f);
+        xl.setAxisMaximum(MAX_DISPLAY_FREQ);
+        xl.setTextColor(Color.WHITE);
+        xl.setTextSize(11f);
 
         YAxis leftAxis = chart.getAxisLeft();
         leftAxis.setDrawGridLines(true);
+        leftAxis.setTextColor(Color.WHITE);
+        leftAxis.setTextSize(11f);
 
-        chart.getAxisRight().setEnabled(false);
+        chart.getAxisRight().setEnabled(true);
+        chart.getAxisRight().setDrawGridLines(false);
+        chart.getAxisRight().setDrawAxisLine(false);
+        chart.getAxisRight().setDrawLabels(false);
         chart.getLegend().setEnabled(false);
 
         BarDataSet set = new BarDataSet(new ArrayList<>(), "Magnitude");
