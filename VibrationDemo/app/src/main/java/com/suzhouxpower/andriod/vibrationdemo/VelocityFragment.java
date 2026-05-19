@@ -10,7 +10,8 @@ import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.Button;
+import android.widget.CheckBox;
+import android.widget.CompoundButton;
 import android.widget.TextView;
 
 import androidx.annotation.NonNull;
@@ -39,9 +40,11 @@ public class VelocityFragment extends Fragment implements SensorEventListener {
 
     private LineChart chart;
     private TextView tvVelX, tvVelY, tvVelZ;
-    private Button btnToggleHp;
+    private CheckBox cbHighPass;
+    private CheckBox cbDriftFilter;
 
     private boolean hpEnabled = true;
+    private boolean driftEnabled = true;
 
     private int dataIndex = 0;
     private long prevTimeNs = 0;
@@ -69,13 +72,25 @@ public class VelocityFragment extends Fragment implements SensorEventListener {
         tvVelY = view.findViewById(R.id.tvVelY);
         tvVelZ = view.findViewById(R.id.tvVelZ);
         chart = view.findViewById(R.id.velChart);
-        btnToggleHp = view.findViewById(R.id.btnToggleHp);
+        cbHighPass = view.findViewById(R.id.cbHighPass);
+        cbDriftFilter = view.findViewById(R.id.cbDriftFilter);
 
-        updateHpButtonText();
-        btnToggleHp.setOnClickListener(v -> {
-            hpEnabled = !hpEnabled;
-            updateHpButtonText();
+        cbHighPass.setText(String.format(Locale.US, "HP Filter (%.1f Hz)", HP_CUTOFF_HZ));
+        cbHighPass.setChecked(hpEnabled);
+        cbHighPass.setOnCheckedChangeListener((CompoundButton buttonView, boolean isChecked) -> {
+            hpEnabled = isChecked;
             highPassFilter.reset();
+            velX = velY = velZ = 0;
+            prevTimeNs = 0;
+            windowStartNs = 0;
+            sumVelX2 = sumVelY2 = sumVelZ2 = 0;
+            sampleCount = 0;
+        });
+
+        cbDriftFilter.setText("Drift Filter (0.1 Hz)");
+        cbDriftFilter.setChecked(driftEnabled);
+        cbDriftFilter.setOnCheckedChangeListener((CompoundButton buttonView, boolean isChecked) -> {
+            driftEnabled = isChecked;
             velocityDriftFilter.reset();
             velX = velY = velZ = 0;
             prevTimeNs = 0;
@@ -161,7 +176,7 @@ public class VelocityFragment extends Fragment implements SensorEventListener {
     public void onSensorChanged(SensorEvent event) {
         if (event.sensor.getType() != Sensor.TYPE_LINEAR_ACCELERATION) return;
 
-        long now = System.nanoTime();
+        long now = event.timestamp;
 
         float rawX = event.values[0];
         float rawY = event.values[1];
@@ -197,11 +212,13 @@ public class VelocityFragment extends Fragment implements SensorEventListener {
         velZ += az * dtSec;
 
         // Step 2b: Apply velocity drift filter (remove accumulated DC from integration)
-        velocityDriftFilter.update(dtSec);
-        float[] velFiltered = velocityDriftFilter.apply(velX, velY, velZ);
-        velX = velFiltered[0];
-        velY = velFiltered[1];
-        velZ = velFiltered[2];
+        if (driftEnabled) {
+            velocityDriftFilter.update(dtSec);
+            float[] velFiltered = velocityDriftFilter.apply(velX, velY, velZ);
+            velX = velFiltered[0];
+            velY = velFiltered[1];
+            velZ = velFiltered[2];
+        }
 
         // Step 3: Accumulate squared velocity for 1-second RMS window
         sumVelX2 += velX * velX;
@@ -252,12 +269,6 @@ public class VelocityFragment extends Fragment implements SensorEventListener {
             sumVelX2 = sumVelY2 = sumVelZ2 = 0;
             sampleCount = 0;
         }
-    }
-
-    private void updateHpButtonText() {
-        btnToggleHp.setText(hpEnabled
-                ? String.format(Locale.US, "High-Pass Filter: ON (%.1f Hz)", HP_CUTOFF_HZ)
-                : "High-Pass Filter: OFF");
     }
 
     private void updateMinMaxLines(LineDataSet setX, LineDataSet setY, LineDataSet setZ) {
