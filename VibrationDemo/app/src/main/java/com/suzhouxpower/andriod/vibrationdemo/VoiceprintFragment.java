@@ -31,10 +31,13 @@ import com.github.mikephil.charting.formatter.ValueFormatter;
 import java.util.ArrayList;
 import java.util.Locale;
 
+import java.util.ArrayList;
+import java.util.Locale;
+
 public class VoiceprintFragment extends Fragment {
 
     private static final int SAMPLE_RATE = 44100;
-    private static final int MAX_DISPLAY_FREQ = 8000;
+    private static final int MAX_DISPLAY_FREQ = 20000;
     private static final int PERMISSION_REQUEST_CODE = 100;
     private static final int UPDATE_INTERVAL_MS = 100;
 
@@ -85,6 +88,12 @@ public class VoiceprintFragment extends Fragment {
         xl.setAxisMaximum(MAX_DISPLAY_FREQ);
         xl.setTextColor(Color.WHITE);
         xl.setTextSize(11f);
+        xl.setValueFormatter(new ValueFormatter() {
+            @Override
+            public String getFormattedValue(float value) {
+                return String.format(Locale.US, "%.0fk", value / 1000f);
+            }
+        });
 
         YAxis leftAxis = chart.getAxisLeft();
         leftAxis.setDrawGridLines(true);
