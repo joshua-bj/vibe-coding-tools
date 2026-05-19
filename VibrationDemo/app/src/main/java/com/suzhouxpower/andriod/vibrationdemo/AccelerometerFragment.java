@@ -10,7 +10,8 @@ import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.Button;
+import android.widget.CheckBox;
+import android.widget.CompoundButton;
 import android.widget.TextView;
 
 import androidx.annotation.NonNull;
@@ -41,12 +42,14 @@ public class AccelerometerFragment extends Fragment implements SensorEventListen
 
     private LineChart chart;
     private TextView tvX, tvY, tvZ, tvFreq;
-    private Button btnToggleHp;
+    private CheckBox cbHighPass;
+    private CheckBox cbLinearAccel;
 
     private int dataIndex = 0;
     private final Deque<Long> freqTimestamps = new ArrayDeque<>();
     private final SignalFilter.HighPassFilter highPassFilter = new SignalFilter.HighPassFilter(HP_CUTOFF_HZ);
     private boolean hpEnabled = false;
+    private boolean useLinearAccel = false;
     private long prevTimeNs = 0;
 
     @Override
@@ -62,13 +65,22 @@ public class AccelerometerFragment extends Fragment implements SensorEventListen
         tvZ = view.findViewById(R.id.tvZ);
         tvFreq = view.findViewById(R.id.tvFreq);
         chart = view.findViewById(R.id.chart);
-        btnToggleHp = view.findViewById(R.id.btnToggleHpAccel);
+        cbHighPass = view.findViewById(R.id.cbHighPass);
+        cbLinearAccel = view.findViewById(R.id.cbLinearAccel);
 
-        updateHpButtonText();
-        btnToggleHp.setOnClickListener(v -> {
-            hpEnabled = !hpEnabled;
-            updateHpButtonText();
+        cbHighPass.setText(String.format(Locale.US, "HP Filter (%.1f Hz)", HP_CUTOFF_HZ));
+        cbHighPass.setChecked(hpEnabled);
+        cbHighPass.setOnCheckedChangeListener((CompoundButton buttonView, boolean isChecked) -> {
+            hpEnabled = isChecked;
             highPassFilter.reset();
+            prevTimeNs = 0;
+        });
+
+        cbLinearAccel.setText("Linear Accel");
+        cbLinearAccel.setChecked(useLinearAccel);
+        cbLinearAccel.setOnCheckedChangeListener((CompoundButton buttonView, boolean isChecked) -> {
+            useLinearAccel = isChecked;
+            updateSensor();
             prevTimeNs = 0;
         });
 
@@ -76,9 +88,7 @@ public class AccelerometerFragment extends Fragment implements SensorEventListen
         initChartData();
 
         sensorManager = (SensorManager) requireContext().getSystemService(Context.SENSOR_SERVICE);
-        if (sensorManager != null) {
-            accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
-        }
+        updateSensor();
     }
 
     private void setupChart() {
@@ -123,6 +133,17 @@ public class AccelerometerFragment extends Fragment implements SensorEventListen
         return set;
     }
 
+    private void updateSensor() {
+        if (sensorManager != null) {
+            sensorManager.unregisterListener(this);
+            int sensorType = useLinearAccel ? Sensor.TYPE_LINEAR_ACCELERATION : Sensor.TYPE_ACCELEROMETER;
+            accelerometer = sensorManager.getDefaultSensor(sensorType);
+            if (accelerometer != null) {
+                sensorManager.registerListener(this, accelerometer, SensorManager.SENSOR_DELAY_UI);
+            }
+        }
+    }
+
     @Override
     public void onResume() {
         super.onResume();
@@ -143,7 +164,8 @@ public class AccelerometerFragment extends Fragment implements SensorEventListen
 
     @Override
     public void onSensorChanged(SensorEvent event) {
-        if (event.sensor.getType() != Sensor.TYPE_ACCELEROMETER) return;
+        int expectedType = useLinearAccel ? Sensor.TYPE_LINEAR_ACCELERATION : Sensor.TYPE_ACCELEROMETER;
+        if (event.sensor.getType() != expectedType) return;
 
         float x = event.values[0];
         float y = event.values[1];
@@ -204,12 +226,6 @@ public class AccelerometerFragment extends Fragment implements SensorEventListen
         updateMinMaxLines(setX, setY, setZ);
         chart.setVisibleXRangeMaximum(MAX_DATA_POINTS);
         chart.moveViewToX(dataIndex - MAX_DATA_POINTS);
-    }
-
-    private void updateHpButtonText() {
-        btnToggleHp.setText(hpEnabled
-                ? String.format(Locale.US, "High-Pass Filter: ON (%.1f Hz)", HP_CUTOFF_HZ)
-                : "High-Pass Filter: OFF");
     }
 
     private void updateMinMaxLines(LineDataSet setX, LineDataSet setY, LineDataSet setZ) {
