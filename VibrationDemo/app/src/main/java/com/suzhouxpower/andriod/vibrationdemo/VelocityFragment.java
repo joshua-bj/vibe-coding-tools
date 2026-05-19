@@ -47,6 +47,7 @@ public class VelocityFragment extends Fragment implements SensorEventListener {
     private long prevTimeNs = 0;
 
     private final SignalFilter.HighPassFilter highPassFilter = new SignalFilter.HighPassFilter(HP_CUTOFF_HZ);
+    private final SignalFilter.HighPassFilter velocityDriftFilter = new SignalFilter.HighPassFilter(0.1f); // remove velocity drift
 
     // Integrated velocity per axis (m/s)
     private float velX, velY, velZ;
@@ -75,6 +76,7 @@ public class VelocityFragment extends Fragment implements SensorEventListener {
             hpEnabled = !hpEnabled;
             updateHpButtonText();
             highPassFilter.reset();
+            velocityDriftFilter.reset();
             velX = velY = velZ = 0;
             prevTimeNs = 0;
             windowStartNs = 0;
@@ -193,6 +195,13 @@ public class VelocityFragment extends Fragment implements SensorEventListener {
         velX += ax * dtSec;
         velY += ay * dtSec;
         velZ += az * dtSec;
+
+        // Step 2b: Apply velocity drift filter (remove accumulated DC from integration)
+        velocityDriftFilter.update(dtSec);
+        float[] velFiltered = velocityDriftFilter.apply(velX, velY, velZ);
+        velX = velFiltered[0];
+        velY = velFiltered[1];
+        velZ = velFiltered[2];
 
         // Step 3: Accumulate squared velocity for 1-second RMS window
         sumVelX2 += velX * velX;
