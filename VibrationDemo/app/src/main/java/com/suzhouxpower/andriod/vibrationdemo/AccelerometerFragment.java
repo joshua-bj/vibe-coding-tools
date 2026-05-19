@@ -77,7 +77,7 @@ public class AccelerometerFragment extends Fragment implements SensorEventListen
 
         sensorManager = (SensorManager) requireContext().getSystemService(Context.SENSOR_SERVICE);
         if (sensorManager != null) {
-            accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_LINEAR_ACCELERATION);
+            accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
         }
     }
 
@@ -143,7 +143,7 @@ public class AccelerometerFragment extends Fragment implements SensorEventListen
 
     @Override
     public void onSensorChanged(SensorEvent event) {
-        if (event.sensor.getType() != Sensor.TYPE_LINEAR_ACCELERATION) return;
+        if (event.sensor.getType() != Sensor.TYPE_ACCELEROMETER) return;
 
         float x = event.values[0];
         float y = event.values[1];
@@ -215,18 +215,20 @@ public class AccelerometerFragment extends Fragment implements SensorEventListen
     private void updateMinMaxLines(LineDataSet setX, LineDataSet setY, LineDataSet setZ) {
         float max = Float.MIN_VALUE;
         float min = Float.MAX_VALUE;
+        int maxColor = Color.RED;
+        int minColor = Color.RED;
 
         for (Entry e : setX.getValues()) {
-            if (e.getY() > max) max = e.getY();
-            if (e.getY() < min) min = e.getY();
+            if (e.getY() > max) { max = e.getY(); maxColor = Color.RED; }
+            if (e.getY() < min) { min = e.getY(); minColor = Color.RED; }
         }
         for (Entry e : setY.getValues()) {
-            if (e.getY() > max) max = e.getY();
-            if (e.getY() < min) min = e.getY();
+            if (e.getY() > max) { max = e.getY(); maxColor = Color.GREEN; }
+            if (e.getY() < min) { min = e.getY(); minColor = Color.GREEN; }
         }
         for (Entry e : setZ.getValues()) {
-            if (e.getY() > max) max = e.getY();
-            if (e.getY() < min) min = e.getY();
+            if (e.getY() > max) { max = e.getY(); maxColor = Color.BLUE; }
+            if (e.getY() < min) { min = e.getY(); minColor = Color.BLUE; }
         }
 
         if (max == Float.MIN_VALUE || min == Float.MAX_VALUE) return;
@@ -243,16 +245,16 @@ public class AccelerometerFragment extends Fragment implements SensorEventListen
 
         LimitLine maxLine = new LimitLine(max, String.format(Locale.US, "Max: %.2f", max));
         maxLine.enableDashedLine(10f, 10f, 0f);
-        maxLine.setLineColor(Color.parseColor("#FF6600"));
-        maxLine.setTextColor(Color.parseColor("#FF6600"));
+        maxLine.setLineColor(maxColor);
+        maxLine.setTextColor(maxColor);
         maxLine.setLineWidth(1f);
         maxLine.setTextSize(10f);
         leftAxis.addLimitLine(maxLine);
 
         LimitLine minLine = new LimitLine(min, String.format(Locale.US, "Min: %.2f", min));
         minLine.enableDashedLine(10f, 10f, 0f);
-        minLine.setLineColor(Color.parseColor("#9933CC"));
-        minLine.setTextColor(Color.parseColor("#9933CC"));
+        minLine.setLineColor(minColor);
+        minLine.setTextColor(minColor);
         minLine.setLineWidth(1f);
         minLine.setTextSize(10f);
         leftAxis.addLimitLine(minLine);
