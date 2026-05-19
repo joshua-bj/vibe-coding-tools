@@ -69,6 +69,14 @@
             android:textColor="#FFFFFF"
             android:textAllCaps="false" />
 
+        <com.google.android.material.checkbox.MaterialCheckBox
+            android:id="@+id/cbLinearAccel"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textColor="#FFFFFF"
+            android:textAllCaps="false" />
+
     </LinearLayout>
 
     <com.github.mikephil.charting.charts.LineChart
