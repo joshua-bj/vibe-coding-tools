@@ -10,6 +10,7 @@ import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.Button;
 import android.widget.TextView;
 
 import androidx.annotation.NonNull;
@@ -33,15 +34,20 @@ public class AccelerometerFragment extends Fragment implements SensorEventListen
 
     private static final int MAX_DATA_POINTS = 200;
     private static final long FREQ_WINDOW_NS = 60_000_000_000L; // 1 minute
+    private static final float HP_CUTOFF_HZ = 1.0f;
 
     private SensorManager sensorManager;
     private Sensor accelerometer;
 
     private LineChart chart;
     private TextView tvX, tvY, tvZ, tvFreq;
+    private Button btnToggleHp;
 
     private int dataIndex = 0;
     private final Deque<Long> freqTimestamps = new ArrayDeque<>();
+    private final SignalFilter.HighPassFilter highPassFilter = new SignalFilter.HighPassFilter(HP_CUTOFF_HZ);
+    private boolean hpEnabled = false;
+    private long prevTimeNs = 0;
 
     @Override
     public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container,
@@ -56,6 +62,15 @@ public class AccelerometerFragment extends Fragment implements SensorEventListen
         tvZ = view.findViewById(R.id.tvZ);
         tvFreq = view.findViewById(R.id.tvFreq);
         chart = view.findViewById(R.id.chart);
+        btnToggleHp = view.findViewById(R.id.btnToggleHpAccel);
+
+        updateHpButtonText();
+        btnToggleHp.setOnClickListener(v -> {
+            hpEnabled = !hpEnabled;
+            updateHpButtonText();
+            highPassFilter.reset();
+            prevTimeNs = 0;
+        });
 
         setupChart();
         initChartData();
@@ -111,6 +126,8 @@ public class AccelerometerFragment extends Fragment implements SensorEventListen
     @Override
     public void onResume() {
         super.onResume();
+        prevTimeNs = 0;
+        highPassFilter.reset();
         if (accelerometer != null) {
             sensorManager.registerListener(this, accelerometer, SensorManager.SENSOR_DELAY_UI);
         }
@@ -131,6 +148,22 @@ public class AccelerometerFragment extends Fragment implements SensorEventListen
         float x = event.values[0];
         float y = event.values[1];
         float z = event.values[2];
+
+        // Apply high-pass filter if enabled
+        if (hpEnabled) {
+            long now = System.nanoTime();
+            if (prevTimeNs == 0) {
+                prevTimeNs = now;
+                return;
+            }
+            float dtSec = (now - prevTimeNs) / 1_000_000_000f;
+            prevTimeNs = now;
+            highPassFilter.update(dtSec);
+            float[] filtered = highPassFilter.apply(x, y, z);
+            x = filtered[0];
+            y = filtered[1];
+            z = filtered[2];
+        }
 
         tvX.setText(String.format(Locale.US, "X: %.2f", x));
         tvY.setText(String.format(Locale.US, "Y: %.2f", y));
@@ -171,6 +204,12 @@ public class AccelerometerFragment extends Fragment implements SensorEventListen
         updateMinMaxLines(setX, setY, setZ);
         chart.setVisibleXRangeMaximum(MAX_DATA_POINTS);
         chart.moveViewToX(dataIndex - MAX_DATA_POINTS);
+    }
+
+    private void updateHpButtonText() {
+        btnToggleHp.setText(hpEnabled
+                ? String.format(Locale.US, "High-Pass Filter: ON (%.1f Hz)", HP_CUTOFF_HZ)
+                : "High-Pass Filter: OFF");
     }
 
     private void updateMinMaxLines(LineDataSet setX, LineDataSet setY, LineDataSet setZ) {

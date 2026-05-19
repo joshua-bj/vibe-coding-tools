@@ -10,6 +10,7 @@ import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.Button;
 import android.widget.TextView;
 
 import androidx.annotation.NonNull;
@@ -31,17 +32,22 @@ public class RmsFragment extends Fragment implements SensorEventListener {
 
     private static final int MAX_DATA_POINTS = 200;
     private static final long RMS_WINDOW_NS = 1_000_000_000L; // 1 second
+    private static final float HP_CUTOFF_HZ = 1.0f;
 
     private SensorManager sensorManager;
     private Sensor accelerometer;
 
     private LineChart chart;
     private TextView tvRmsX, tvRmsY, tvRmsZ;
+    private Button btnToggleHp;
 
     private int dataIndex = 0;
     private long windowStartNs = 0;
     private float sumX2, sumY2, sumZ2;
     private int sampleCount;
+    private final SignalFilter.HighPassFilter highPassFilter = new SignalFilter.HighPassFilter(HP_CUTOFF_HZ);
+    private boolean hpEnabled = false;
+    private long prevTimeNs = 0;
 
     @Override
     public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container,
@@ -55,6 +61,18 @@ public class RmsFragment extends Fragment implements SensorEventListener {
         tvRmsY = view.findViewById(R.id.tvRmsY);
         tvRmsZ = view.findViewById(R.id.tvRmsZ);
         chart = view.findViewById(R.id.rmsChart);
+        btnToggleHp = view.findViewById(R.id.btnToggleHpRms);
+
+        updateHpButtonText();
+        btnToggleHp.setOnClickListener(v -> {
+            hpEnabled = !hpEnabled;
+            updateHpButtonText();
+            highPassFilter.reset();
+            prevTimeNs = 0;
+            windowStartNs = 0;
+            sumX2 = sumY2 = sumZ2 = 0;
+            sampleCount = 0;
+        });
 
         setupChart();
         initChartData();
@@ -110,6 +128,8 @@ public class RmsFragment extends Fragment implements SensorEventListener {
     @Override
     public void onResume() {
         super.onResume();
+        prevTimeNs = 0;
+        highPassFilter.reset();
         if (accelerometer != null) {
             sensorManager.registerListener(this, accelerometer, SensorManager.SENSOR_DELAY_UI);
         }
@@ -139,6 +159,21 @@ public class RmsFragment extends Fragment implements SensorEventListener {
         float x = event.values[0];
         float y = event.values[1];
         float z = event.values[2];
+
+        // Apply high-pass filter if enabled
+        if (hpEnabled) {
+            if (prevTimeNs == 0) {
+                prevTimeNs = now;
+                return;
+            }
+            float dtSec = (now - prevTimeNs) / 1_000_000_000f;
+            prevTimeNs = now;
+            highPassFilter.update(dtSec);
+            float[] filtered = highPassFilter.apply(x, y, z);
+            x = filtered[0];
+            y = filtered[1];
+            z = filtered[2];
+        }
 
         sumX2 += x * x;
         sumY2 += y * y;
@@ -183,6 +218,12 @@ public class RmsFragment extends Fragment implements SensorEventListener {
             sumX2 = sumY2 = sumZ2 = 0;
             sampleCount = 0;
         }
+    }
+
+    private void updateHpButtonText() {
+        btnToggleHp.setText(hpEnabled
+                ? String.format(Locale.US, "High-Pass Filter: ON (%.1f Hz)", HP_CUTOFF_HZ)
+                : "High-Pass Filter: OFF");
     }
 
     private void updateMinMaxLines(LineDataSet setX, LineDataSet setY, LineDataSet setZ) {
