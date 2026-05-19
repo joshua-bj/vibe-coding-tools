@@ -52,7 +52,10 @@ public class VelocityFragment extends Fragment implements SensorEventListener {
     private final SignalFilter.HighPassFilter highPassFilter = new SignalFilter.HighPassFilter(HP_CUTOFF_HZ);
     private final SignalFilter.HighPassFilter velocityDriftFilter = new SignalFilter.HighPassFilter(0.1f); // remove velocity drift
 
-    // Integrated velocity per axis (m/s)
+    // Raw integrated velocity per axis (m/s) — pure accumulation, never filtered
+    private float rawVelX, rawVelY, rawVelZ;
+
+    // Display velocity per axis (m/s) — filtered or raw, used for RMS and chart
     private float velX, velY, velZ;
 
     // RMS 1-second window: accumulate squared velocity samples
@@ -80,6 +83,7 @@ public class VelocityFragment extends Fragment implements SensorEventListener {
         cbHighPass.setOnCheckedChangeListener((CompoundButton buttonView, boolean isChecked) -> {
             hpEnabled = isChecked;
             highPassFilter.reset();
+            rawVelX = rawVelY = rawVelZ = 0;
             velX = velY = velZ = 0;
             prevTimeNs = 0;
             windowStartNs = 0;
@@ -92,6 +96,7 @@ public class VelocityFragment extends Fragment implements SensorEventListener {
         cbDriftFilter.setOnCheckedChangeListener((CompoundButton buttonView, boolean isChecked) -> {
             driftEnabled = isChecked;
             velocityDriftFilter.reset();
+            rawVelX = rawVelY = rawVelZ = 0;
             velX = velY = velZ = 0;
             prevTimeNs = 0;
             windowStartNs = 0;
@@ -158,6 +163,8 @@ public class VelocityFragment extends Fragment implements SensorEventListener {
         }
         prevTimeNs = 0;
         highPassFilter.reset();
+        velocityDriftFilter.reset();
+        rawVelX = rawVelY = rawVelZ = 0;
         velX = velY = velZ = 0;
         windowStartNs = 0;
         sumVelX2 = sumVelY2 = sumVelZ2 = 0;
@@ -206,18 +213,22 @@ public class VelocityFragment extends Fragment implements SensorEventListener {
             az = rawZ;
         }
 
-        // Step 2: Integrate acceleration -> velocity (m/s)
-        velX += ax * dtSec;
-        velY += ay * dtSec;
-        velZ += az * dtSec;
+        // Step 2: Pure integration — accumulator never filtered
+        rawVelX += ax * dtSec;
+        rawVelY += ay * dtSec;
+        rawVelZ += az * dtSec;
 
-        // Step 2b: Apply velocity drift filter (remove accumulated DC from integration)
+        // Step 2b: Apply velocity drift filter for display only (no feedback to integrator)
         if (driftEnabled) {
             velocityDriftFilter.update(dtSec);
-            float[] velFiltered = velocityDriftFilter.apply(velX, velY, velZ);
+            float[] velFiltered = velocityDriftFilter.apply(rawVelX, rawVelY, rawVelZ);
             velX = velFiltered[0];
             velY = velFiltered[1];
             velZ = velFiltered[2];
+        } else {
+            velX = rawVelX;
+            velY = rawVelY;
+            velZ = rawVelZ;
         }
 
         // Step 3: Accumulate squared velocity for 1-second RMS window
