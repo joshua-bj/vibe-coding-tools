@@ -10,7 +10,8 @@ import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.Button;
+import android.widget.CheckBox;
+import android.widget.CompoundButton;
 import android.widget.TextView;
 
 import androidx.annotation.NonNull;
@@ -39,7 +40,8 @@ public class RmsFragment extends Fragment implements SensorEventListener {
 
     private LineChart chart;
     private TextView tvRmsX, tvRmsY, tvRmsZ;
-    private Button btnToggleHp;
+    private CheckBox cbHighPass;
+    private CheckBox cbLinearAccel;
 
     private int dataIndex = 0;
     private long windowStartNs = 0;
@@ -47,6 +49,7 @@ public class RmsFragment extends Fragment implements SensorEventListener {
     private int sampleCount;
     private final SignalFilter.HighPassFilter highPassFilter = new SignalFilter.HighPassFilter(HP_CUTOFF_HZ);
     private boolean hpEnabled = false;
+    private boolean useLinearAccel = true;
     private long prevTimeNs = 0;
 
     @Override
@@ -61,12 +64,13 @@ public class RmsFragment extends Fragment implements SensorEventListener {
         tvRmsY = view.findViewById(R.id.tvRmsY);
         tvRmsZ = view.findViewById(R.id.tvRmsZ);
         chart = view.findViewById(R.id.rmsChart);
-        btnToggleHp = view.findViewById(R.id.btnToggleHpRms);
+        cbHighPass = view.findViewById(R.id.cbHighPass);
+        cbLinearAccel = view.findViewById(R.id.cbLinearAccel);
 
-        updateHpButtonText();
-        btnToggleHp.setOnClickListener(v -> {
-            hpEnabled = !hpEnabled;
-            updateHpButtonText();
+        cbHighPass.setText(String.format(Locale.US, "HP Filter (%.1f Hz)", HP_CUTOFF_HZ));
+        cbHighPass.setChecked(hpEnabled);
+        cbHighPass.setOnCheckedChangeListener((CompoundButton buttonView, boolean isChecked) -> {
+            hpEnabled = isChecked;
             highPassFilter.reset();
             prevTimeNs = 0;
             windowStartNs = 0;
@@ -74,13 +78,23 @@ public class RmsFragment extends Fragment implements SensorEventListener {
             sampleCount = 0;
         });
 
+        cbLinearAccel.setText("Linear Accel");
+        cbLinearAccel.setChecked(useLinearAccel);
+        cbLinearAccel.setOnCheckedChangeListener((CompoundButton buttonView, boolean isChecked) -> {
+            useLinearAccel = isChecked;
+            updateSensor();
+            prevTimeNs = 0;
+            windowStartNs = 0;
+            sumX2 = sumY2 = sumZ2 = 0;
+            sampleCount = 0;
+            clearChart();
+        });
+
         setupChart();
         initChartData();
 
         sensorManager = (SensorManager) requireContext().getSystemService(Context.SENSOR_SERVICE);
-        if (sensorManager != null) {
-            accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_LINEAR_ACCELERATION);
-        }
+        updateSensor();
     }
 
     private void setupChart() {
@@ -88,6 +102,7 @@ public class RmsFragment extends Fragment implements SensorEventListener {
         chart.getDescription().setTextSize(12f);
         chart.setDrawGridBackground(true);
         chart.setPinchZoom(true);
+        chart.setAutoScaleMinMaxEnabled(true);
 
         XAxis xl = chart.getXAxis();
         xl.setPosition(XAxis.XAxisPosition.BOTTOM);
@@ -115,6 +130,32 @@ public class RmsFragment extends Fragment implements SensorEventListener {
         chart.invalidate();
     }
 
+    private void clearChart() {
+        dataIndex = 0;
+        chart.getAxisLeft().removeAllLimitLines();
+        LineData data = chart.getData();
+        if (data != null) {
+            for (int i = 0; i < data.getDataSetCount(); i++) {
+                data.getDataSetByIndex(i).clear();
+            }
+            data.notifyDataChanged();
+            chart.notifyDataSetChanged();
+            chart.fitScreen();
+            chart.invalidate();
+        }
+    }
+
+    private void updateSensor() {
+        if (sensorManager != null) {
+            sensorManager.unregisterListener(this);
+            int sensorType = useLinearAccel ? Sensor.TYPE_LINEAR_ACCELERATION : Sensor.TYPE_ACCELEROMETER;
+            accelerometer = sensorManager.getDefaultSensor(sensorType);
+            if (accelerometer != null) {
+                sensorManager.registerListener(this, accelerometer, SensorManager.SENSOR_DELAY_UI);
+            }
+        }
+    }
+
     private LineDataSet createDataSet(String label, int color) {
         LineDataSet set = new LineDataSet(new ArrayList<>(), label);
         set.setColor(color);
@@ -130,12 +171,10 @@ public class RmsFragment extends Fragment implements SensorEventListener {
         super.onResume();
         prevTimeNs = 0;
         highPassFilter.reset();
-        if (accelerometer != null) {
-            sensorManager.registerListener(this, accelerometer, SensorManager.SENSOR_DELAY_UI);
-        }
         windowStartNs = 0;
         sumX2 = sumY2 = sumZ2 = 0;
         sampleCount = 0;
+        updateSensor();
     }
 
     @Override
@@ -148,7 +187,8 @@ public class RmsFragment extends Fragment implements SensorEventListener {
 
     @Override
     public void onSensorChanged(SensorEvent event) {
-        if (event.sensor.getType() != Sensor.TYPE_LINEAR_ACCELERATION) return;
+        int expectedType = useLinearAccel ? Sensor.TYPE_LINEAR_ACCELERATION : Sensor.TYPE_ACCELEROMETER;
+        if (event.sensor.getType() != expectedType) return;
 
         long now = System.nanoTime();
 
@@ -218,12 +258,6 @@ public class RmsFragment extends Fragment implements SensorEventListener {
             sumX2 = sumY2 = sumZ2 = 0;
             sampleCount = 0;
         }
-    }
-
-    private void updateHpButtonText() {
-        btnToggleHp.setText(hpEnabled
-                ? String.format(Locale.US, "High-Pass Filter: ON (%.1f Hz)", HP_CUTOFF_HZ)
-                : "High-Pass Filter: OFF");
     }
 
     private void updateMinMaxLines(LineDataSet setX, LineDataSet setY, LineDataSet setZ) {
