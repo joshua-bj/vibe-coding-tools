@@ -29,6 +29,11 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content" />
 
+        <Spinner
+            android:id="@+id/spinnerFreqRange"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content" />
+
     </LinearLayout>
 
     <com.github.mikephil.charting.charts.BarChart

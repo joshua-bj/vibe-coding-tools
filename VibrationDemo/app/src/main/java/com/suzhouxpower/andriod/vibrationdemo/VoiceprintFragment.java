@@ -37,21 +37,25 @@ import java.util.Locale;
 public class VoiceprintFragment extends Fragment {
 
     private static final int SAMPLE_RATE = 44100;
-    private static final int MAX_DISPLAY_FREQ = 20000;
     private static final int PERMISSION_REQUEST_CODE = 100;
     private static final int UPDATE_INTERVAL_MS = 100;
 
     private static final int[] FFT_SIZES = {512, 1024, 2048, 4096, 8192};
     private static final String[] FFT_LABELS = {"512", "1024", "2048", "4096", "8192"};
 
+    private static final int[] FREQ_RANGES = {8000, 20000, 30000};
+    private static final String[] FREQ_RANGE_LABELS = {"0–8 kHz", "0–20 kHz", "0–30 kHz"};
+
     private BarChart chart;
     private TextView tvPeakFreq;
     private Spinner spinnerFftSize;
+    private Spinner spinnerFreqRange;
 
     private AudioRecord audioRecord;
     private Thread recordingThread;
     private volatile boolean isRecording = false;
     private volatile int fftSize = 2048;
+    private volatile int maxDisplayFreq = 8000;
 
     private long lastUpdateTime = 0;
 
@@ -66,9 +70,11 @@ public class VoiceprintFragment extends Fragment {
         tvPeakFreq = view.findViewById(R.id.tvPeakFreq);
         chart = view.findViewById(R.id.fftChart);
         spinnerFftSize = view.findViewById(R.id.spinnerFftSize);
+        spinnerFreqRange = view.findViewById(R.id.spinnerFreqRange);
 
         setupChart();
         setupSpinner();
+        setupFreqRangeSpinner();
     }
 
     private void setupChart() {
@@ -85,7 +91,7 @@ public class VoiceprintFragment extends Fragment {
         xl.setGranularity(50f);
         xl.setLabelCount(9);
         xl.setAxisMinimum(0f);
-        xl.setAxisMaximum(MAX_DISPLAY_FREQ);
+        xl.setAxisMaximum(maxDisplayFreq);
         xl.setTextColor(Color.WHITE);
         xl.setTextSize(11f);
         xl.setValueFormatter(new ValueFormatter() {
@@ -142,6 +148,30 @@ public class VoiceprintFragment extends Fragment {
                 if (newSize != fftSize) {
                     fftSize = newSize;
                     restartRecording();
+                }
+            }
+
+            @Override
+            public void onNothingSelected(AdapterView<?> parent) {
+            }
+        });
+    }
+
+    private void setupFreqRangeSpinner() {
+        ArrayAdapter<String> adapter = new ArrayAdapter<>(requireContext(),
+                android.R.layout.simple_spinner_item, FREQ_RANGE_LABELS);
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        spinnerFreqRange.setAdapter(adapter);
+        // Default: 0-8 kHz = index 0
+        spinnerFreqRange.setSelection(0);
+
+        spinnerFreqRange.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override
+            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+                int newMax = FREQ_RANGES[position];
+                if (newMax != maxDisplayFreq) {
+                    maxDisplayFreq = newMax;
+                    chart.getXAxis().setAxisMaximum(maxDisplayFreq);
                 }
             }
 
@@ -244,7 +274,7 @@ public class VoiceprintFragment extends Fragment {
         while (isRecording) {
             int size = fftSize;
             float freqResolution = (float) SAMPLE_RATE / size;
-            int displayBins = MAX_DISPLAY_FREQ * size / SAMPLE_RATE;
+            int displayBins = maxDisplayFreq * size / SAMPLE_RATE;
 
             short[] buffer = new short[size];
             float[] real = new float[size];
