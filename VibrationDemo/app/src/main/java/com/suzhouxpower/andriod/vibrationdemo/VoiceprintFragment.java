@@ -36,7 +36,9 @@ import java.util.Locale;
 
 public class VoiceprintFragment extends Fragment {
 
-    private static final int SAMPLE_RATE = 44100;
+    private static final int SAMPLE_RATE = 44100;   // device sample rate, as frequency as possible
+                                                    // which impact how higher the voice frequency
+                                                    // can analysis
     private static final int PERMISSION_REQUEST_CODE = 100;
     private static final int UPDATE_INTERVAL_MS = 100;
 
@@ -228,7 +230,8 @@ public class VoiceprintFragment extends Fragment {
             return;
         }
 
-        bufferSize = Math.max(bufferSize, size * 2);
+        // Ensure buffer is at least 2x FFT size so AudioRecord.read() doesn't block waiting for data
+        bufferSize = Math.max(bufferSize, size * 2); // size * 2, because PCM_16BIT is 2 bytes
 
         audioRecord = new AudioRecord(
                 android.media.MediaRecorder.AudioSource.MIC,
@@ -274,7 +277,7 @@ public class VoiceprintFragment extends Fragment {
         while (isRecording) {
             int size = fftSize;
             float freqResolution = (float) SAMPLE_RATE / size;
-            int displayBins = maxDisplayFreq * size / SAMPLE_RATE;
+            int displayBins = Math.min(maxDisplayFreq * size / SAMPLE_RATE, size / 2);
 
             short[] buffer = new short[size];
             float[] real = new float[size];
@@ -283,6 +286,7 @@ public class VoiceprintFragment extends Fragment {
             int read = audioRecord.read(buffer, 0, size);
             if (read != size || !isRecording) continue;
 
+            // Convert PCM16 (-32768..32767) to float (-1.0..1.0); imaginary part starts at zero
             for (int i = 0; i < size; i++) {
                 real[i] = buffer[i] / 32768f;
                 imag[i] = 0f;

@@ -38,6 +38,7 @@ public class MainActivity extends AppCompatActivity {
                         case 1: tab.setText(R.string.tab_rms); break;
                         case 2: tab.setText(R.string.tab_velocity); break;
                         case 3: tab.setText(R.string.tab_voiceprint); break;
+                        case 4: tab.setText(R.string.tab_elevator); break;
                     }
                 }
         ).attach();
