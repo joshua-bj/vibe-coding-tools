@@ -50,22 +50,28 @@ import java.util.Locale;
  * Gravity removal: direct subtraction of the average raw Z during warmup (device stationary).
  * This preserves real constant acceleration — unlike HP filter which removes it as "DC".
  *
- * Drift correction: exponential decay toward zero only during true STATIONARY state
- * (both velocity and acceleration near zero).
+ * Drift correction: dead zone at 0.1 m/s² suppresses vibration/drift noise.
+ *
+ * Movement detection: requires sustained acceleration above ACCEL_MOVE_START for MOVE_CONFIRM_NS
+ * to distinguish real elevator movement from sensor noise during stationary.
+ *
+ * Stop detection: two paths —
+ *   A) velocity drops below threshold for settle time
+ *   B) velocity sign reversal during deceleration (integration overshoot)
  */
 public class ElevatorFragment extends Fragment implements SensorEventListener {
 
     private static final int MAX_DATA_POINTS = 200;
     private static final float LP_CUTOFF_HZ = 5.0f;        // smooth elevator vibration for direction
-    private static final float DRIFT_DECAY = 0.96f;         // per-sample decay at ~50 Hz, tau ≈ 0.5s
-    private static final float BASELINE_TRACK = 0.002f;     // per-sample EMA alpha, tau ≈ 10s at 50 Hz
-    private static final float ACCEL_QUIET = 0.03f;         // m/s² — below this = no significant accel
-    private static final float NOISE_THRESHOLD = 0.05f;     // m/s — below this = stationary
+    private static final float ACCEL_DRIFT_GATE = 0.10f;    // m/s² — gate for drift correction during STATIONARY
+    private static final float NOISE_THRESHOLD  = 0.15f;    // m/s — above max drift, below real movement
     private static final long SETTLE_SHORT_NS  = 500_000_000L;  // 0.5s for low-speed movements
     private static final long SETTLE_LONG_NS   = 1_000_000_000L; // 1.0s after high-speed movement
     private static final float HIGH_SPEED_MM_S = 200f;      // mm/s — above this, use long settle
-    private static final int WARMUP_SAMPLES = 50;           // ~1 second at 50 Hz — measure gravity baseline
-    private static final long ZERO_ACCEL_SETTLE_NS = 3_000_000_000L; // 3s near-zero accel while moving → STATIONARY
+    private static final int WARMUP_SAMPLES = 100;          // ~2 seconds at 50 Hz — measure gravity baseline
+    private static final float ACCEL_MOVE_START = 0.10f;    // m/s² — min accel to confirm real movement
+    private static final long MOVE_CONFIRM_NS  = 200_000_000L;  // 200ms sustained accel to confirm movement
+    private static final float SIGN_FLIP_STOP_MM_S = 200f;  // mm/s — minimum peak speed for sign-flip stop
 
     // Direction constants
     private static final int DIR_STATIONARY = 0;
@@ -79,12 +85,10 @@ public class ElevatorFragment extends Fragment implements SensorEventListener {
     private TextView tvDirection;
     private TextView tvSpeed;
     private TextView tvVelZ;
-    private CheckBox cbDriftFilter;
     private CheckBox cbSmoothFilter;
     private MaterialButton btnRecord;
     private TextView tvRecordStatus;
 
-    private boolean driftEnabled = true;
     private boolean smoothEnabled = true;
 
     // Recording state
@@ -112,8 +116,9 @@ public class ElevatorFragment extends Fragment implements SensorEventListener {
     // Direction state machine
     private int direction = DIR_STATIONARY;
     private long belowThresholdStartNs = 0;
-    private long zeroAccelStartNs = 0;        // timestamp when accel first dropped below ACCEL_QUIET while moving
     private float peakAbsSpeedMmS = 0f;       // peak |speed| during current movement
+    private int confirmingDirection = DIR_STATIONARY;  // direction being confirmed by acceleration
+    private long confirmStartNs = 0;                   // timestamp when acceleration confirmation started
 
     @Override
     public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container,
@@ -127,17 +132,9 @@ public class ElevatorFragment extends Fragment implements SensorEventListener {
         tvSpeed = view.findViewById(R.id.tvSpeed);
         tvVelZ = view.findViewById(R.id.tvVelZ);
         chart = view.findViewById(R.id.elevatorChart);
-        cbDriftFilter = view.findViewById(R.id.cbDriftFilter);
         cbSmoothFilter = view.findViewById(R.id.cbSmoothFilter);
         btnRecord = view.findViewById(R.id.btnRecord);
         tvRecordStatus = view.findViewById(R.id.tvRecordStatus);
-
-        cbDriftFilter.setText("Drift Fix");
-        cbDriftFilter.setChecked(driftEnabled);
-        cbDriftFilter.setOnCheckedChangeListener((CompoundButton buttonView, boolean isChecked) -> {
-            driftEnabled = isChecked;
-            resetState();
-        });
 
         cbSmoothFilter.setText(String.format(Locale.US, "Smooth LP %.0f Hz", LP_CUTOFF_HZ));
         cbSmoothFilter.setChecked(smoothEnabled);
@@ -280,9 +277,10 @@ public class ElevatorFragment extends Fragment implements SensorEventListener {
         warmupSamplesCollected = 0;
         gravityBaseline = 0;
         belowThresholdStartNs = 0;
-        zeroAccelStartNs = 0;
         direction = DIR_STATIONARY;
         peakAbsSpeedMmS = 0;
+        confirmStartNs = 0;
+        confirmingDirection = DIR_STATIONARY;
         clearChart();
     }
 
@@ -305,7 +303,8 @@ public class ElevatorFragment extends Fragment implements SensorEventListener {
         direction = DIR_STATIONARY;
         peakAbsSpeedMmS = 0;
         belowThresholdStartNs = 0;
-        zeroAccelStartNs = 0;
+        confirmStartNs = 0;
+        confirmingDirection = DIR_STATIONARY;
         rawVelZ = 0;
         displayVelZ = 0;
         smoothVelZ = 0;
@@ -325,9 +324,10 @@ public class ElevatorFragment extends Fragment implements SensorEventListener {
         warmupSamplesCollected = 0;
         gravityBaseline = 0;
         belowThresholdStartNs = 0;
-        zeroAccelStartNs = 0;
         direction = DIR_STATIONARY;
         peakAbsSpeedMmS = 0;
+        confirmStartNs = 0;
+        confirmingDirection = DIR_STATIONARY;
         accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
         if (accelerometer != null) {
             sensorManager.registerListener(this, accelerometer, SensorManager.SENSOR_DELAY_UI);
@@ -370,18 +370,11 @@ public class ElevatorFragment extends Fragment implements SensorEventListener {
 
         // Step 2: Direct gravity subtraction — preserves real constant acceleration
         float az = rawZ - gravityBaseline;
+        // Dead zone: |az| < 0.1 → treat as zero (vibration or drift)
+        if (Math.abs(az) < ACCEL_DRIFT_GATE) az = 0f;
 
         // Step 3: Pure integration
         rawVelZ += az * dtSec;
-
-        // Step 4: Drift correction — only during true STATIONARY (both velocity and accel near zero)
-        // When acceleration is significant, the elevator is starting to move — don't fight integration.
-        if (direction == DIR_STATIONARY && driftEnabled && Math.abs(az) < ACCEL_QUIET) {
-            rawVelZ *= DRIFT_DECAY;
-            // Auto-recalibrate gravity baseline: when truly stationary, real accel ≈ 0.
-            // Any residual in az is sensor drift — slowly track it into the baseline.
-            gravityBaseline += BASELINE_TRACK * (rawZ - gravityBaseline);
-        }
         displayVelZ = rawVelZ;
 
         // Step 5: Low-pass filter on display velocity for direction judgment
@@ -394,27 +387,36 @@ public class ElevatorFragment extends Fragment implements SensorEventListener {
         }
 
         // Step 6: Direction state machine
-        // Pattern: 静止→加速→短暂减速→匀速→减速→可能短暂加速→静止
-        // Key: direction is LOCKED once UP or DOWN — never flips mid-ride.
-        //      Only transitions: STATIONARY→UP, STATIONARY→DOWN, UP→STATIONARY, DOWN→STATIONARY
-        //
-        // Two paths to STATIONARY:
-        //   A) velocity drops below threshold for settle time (existing)
-        //   B) acceleration stays near-zero for 3s while moving → elevator stopped but velocity drifted
+        // Three phases: STATIONARY → confirming → locked (UP/DOWN)
+        // Movement start requires sustained acceleration above ACCEL_MOVE_START
+        // Three paths to STATIONARY:
+        //   A) velocity drops below threshold for settle time
+        //   B) velocity sign reversal during deceleration → elevator stopped
         float absSmooth = Math.abs(smoothVelZ);
-        boolean accelQuiet = Math.abs(az) < ACCEL_QUIET;
 
         if (direction == DIR_STATIONARY) {
-            // Only leave STATIONARY when velocity clearly exceeds threshold
-            if (absSmooth > NOISE_THRESHOLD) {
-                direction = (smoothVelZ > 0) ? DIR_UP : DIR_DOWN;
-                peakAbsSpeedMmS = absSmooth * 1000f;
-                belowThresholdStartNs = 0;
-                zeroAccelStartNs = 0;
+            // Acceleration-based movement confirmation:
+            // Require sustained acceleration above threshold to distinguish real movement from drift
+            if (Math.abs(az) > ACCEL_MOVE_START) {
+                int moveDir = (az > 0) ? DIR_UP : DIR_DOWN;
+                if (confirmStartNs == 0 || confirmingDirection != moveDir) {
+                    confirmStartNs = now;
+                    confirmingDirection = moveDir;
+                } else if (now - confirmStartNs >= MOVE_CONFIRM_NS) {
+                    // Confirmed: sustained acceleration in one direction
+                    direction = moveDir;
+                    peakAbsSpeedMmS = absSmooth * 1000f;
+                    confirmStartNs = 0;
+                    confirmingDirection = DIR_STATIONARY;
+                    belowThresholdStartNs = 0;
+                }
+            } else {
+                confirmStartNs = 0;
             }
         } else {
             // Direction is locked — track peak speed
             peakAbsSpeedMmS = Math.max(peakAbsSpeedMmS, absSmooth * 1000f);
+            confirmStartNs = 0;
 
             // Path A: velocity dropped below threshold — start settle timer
             if (absSmooth < NOISE_THRESHOLD) {
@@ -430,27 +432,17 @@ public class ElevatorFragment extends Fragment implements SensorEventListener {
                 belowThresholdStartNs = 0;
             }
 
-            // Path B: acceleration near-zero for extended period while velocity > threshold
-            // → elevator stopped but velocity drifted. Start drift correction + baseline recal,
-            // then transition to STATIONARY after 3 seconds.
-            if (accelQuiet && absSmooth >= NOISE_THRESHOLD) {
-                if (zeroAccelStartNs == 0) {
-                    zeroAccelStartNs = now;
-                } else {
-                    // During zero-accel wait, apply drift decay and baseline recal
-                    // so velocity drifts toward 0 smoothly before the transition
-                    if (driftEnabled) {
-                        rawVelZ *= DRIFT_DECAY;
-                        displayVelZ = rawVelZ;
-                        gravityBaseline += BASELINE_TRACK * (rawZ - gravityBaseline);
-                    }
-                    if (now - zeroAccelStartNs >= ZERO_ACCEL_SETTLE_NS) {
-                        transitionToStationary();
-                    }
+
+            // Path B: velocity sign reversal — elevator stopped, integration overshooting
+            // When direction is DOWN but velocity becomes positive (or vice versa),
+            // the elevator has stopped and deceleration has overcompensated.
+            if (peakAbsSpeedMmS > SIGN_FLIP_STOP_MM_S) {
+                if ((direction == DIR_DOWN && smoothVelZ > NOISE_THRESHOLD) ||
+                    (direction == DIR_UP   && smoothVelZ < -NOISE_THRESHOLD)) {
+                    transitionToStationary();
                 }
-            } else {
-                zeroAccelStartNs = 0;
             }
+
             // Direction stays locked regardless of smoothVelZ sign
         }
 
