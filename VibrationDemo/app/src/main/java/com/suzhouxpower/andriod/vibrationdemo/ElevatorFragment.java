@@ -63,7 +63,7 @@ public class ElevatorFragment extends Fragment implements SensorEventListener {
 
     private static final int MAX_DATA_POINTS = 200;
     private static final float LP_CUTOFF_HZ = 5.0f;        // smooth elevator vibration for direction
-    private static final float ACCEL_DRIFT_GATE = 0.10f;    // m/s² — gate for drift correction during STATIONARY
+    private static final float ACCEL_DRIFT_GATE = 0.06f;    // m/s² — gate for drift correction during STATIONARY
     private static final float NOISE_THRESHOLD  = 0.15f;    // m/s — above max drift, below real movement
     private static final long SETTLE_SHORT_NS  = 500_000_000L;  // 0.5s for low-speed movements
     private static final long SETTLE_LONG_NS   = 1_000_000_000L; // 1.0s after high-speed movement
@@ -74,6 +74,7 @@ public class ElevatorFragment extends Fragment implements SensorEventListener {
     private static final float SIGN_FLIP_STOP_MM_S = 200f;  // mm/s — minimum peak speed for sign-flip stop
     private static final int DEAD_ZONE_BUFFER_MAX = 8;      // max consecutive dead-zone samples eligible for recovery
     private static final float DEAD_ZONE_RESUME_THRESHOLD = 0.05f; // m/s² — above this, suppressed value is real accel
+    private static final int ACCEL_CONFIRM_COUNT = 3;       // need > 3 consecutive above-threshold samples to confirm
 
     // Direction constants
     private static final int DIR_STATIONARY = 0;
@@ -124,6 +125,12 @@ public class ElevatorFragment extends Fragment implements SensorEventListener {
     private final float[] deadZoneAz = new float[DEAD_ZONE_BUFFER_MAX];
     private final float[] deadZoneDt = new float[DEAD_ZONE_BUFFER_MAX];
     private int deadZoneCount = 0;
+
+    // Above-threshold confirmation buffer
+    private final float[] confirmAz = new float[ACCEL_CONFIRM_COUNT + 1];
+    private final float[] confirmDt = new float[ACCEL_CONFIRM_COUNT + 1];
+    private int confirmCount = 0;
+    private boolean accelConfirmed = false;
     private int confirmingDirection = DIR_STATIONARY;  // direction being confirmed by acceleration
     private long confirmStartNs = 0;                   // timestamp when acceleration confirmation started
 
@@ -289,6 +296,8 @@ public class ElevatorFragment extends Fragment implements SensorEventListener {
         confirmStartNs = 0;
         confirmingDirection = DIR_STATIONARY;
         deadZoneCount = 0;
+        confirmCount = 0;
+        accelConfirmed = false;
         clearChart();
     }
 
@@ -313,6 +322,8 @@ public class ElevatorFragment extends Fragment implements SensorEventListener {
         belowThresholdStartNs = 0;
         confirmStartNs = 0;
         confirmingDirection = DIR_STATIONARY;
+        confirmCount = 0;
+        accelConfirmed = false;
         rawVelZ = 0;
         displayVelZ = 0;
         smoothVelZ = 0;
@@ -381,34 +392,59 @@ public class ElevatorFragment extends Fragment implements SensorEventListener {
         float az = rawZ - gravityBaseline;
         float originalAz = az;
 
-        // Dead zone with recovery buffer:
-        // |az| < 0.1 → suppress (vibration/drift), but buffer the original value.
-        // If the dead zone lasts <= 8 samples AND any original |az| > 0.05,
-        // the suppression was at the threshold boundary — flush buffered values back.
+        // Dead zone + confirmation gate:
+        // |az| < ACCEL_DRIFT_GATE → suppress into dead-zone buffer (vibration/drift)
+        // |az| >= ACCEL_DRIFT_GATE → buffer for confirmation; only integrate after >= 3 consecutive samples
+        //   (real acceleration is sustained; vibration breaks the streak)
         if (Math.abs(az) < ACCEL_DRIFT_GATE) {
+            // Below threshold — break confirmation streak, discard buffered above-threshold values
+            confirmCount = 0;
+            accelConfirmed = false;
+
+            // Dead zone recovery buffer (existing logic)
             if (deadZoneCount < DEAD_ZONE_BUFFER_MAX) {
                 deadZoneAz[deadZoneCount] = az;
                 deadZoneDt[deadZoneCount] = dtSec;
             }
             deadZoneCount++;
             az = 0f;
-        } else if (deadZoneCount > 0) {
-            // Exiting dead zone — check if buffered values should be recovered
-            if (deadZoneCount <= DEAD_ZONE_BUFFER_MAX) {
-                boolean hasSignificant = false;
-                for (int i = 0; i < deadZoneCount; i++) {
-                    if (Math.abs(deadZoneAz[i]) > DEAD_ZONE_RESUME_THRESHOLD) {
-                        hasSignificant = true;
-                        break;
-                    }
-                }
-                if (hasSignificant) {
+        } else {
+            // Above threshold — flush dead-zone recovery buffer if eligible
+            if (deadZoneCount > 0) {
+                if (deadZoneCount <= DEAD_ZONE_BUFFER_MAX) {
+                    boolean hasSignificant = false;
                     for (int i = 0; i < deadZoneCount; i++) {
-                        rawVelZ += deadZoneAz[i] * deadZoneDt[i];
+                        if (Math.abs(deadZoneAz[i]) > DEAD_ZONE_RESUME_THRESHOLD) {
+                            hasSignificant = true;
+                            break;
+                        }
+                    }
+                    if (hasSignificant) {
+                        for (int i = 0; i < deadZoneCount; i++) {
+                            rawVelZ += deadZoneAz[i] * deadZoneDt[i];
+                        }
                     }
                 }
+                deadZoneCount = 0;
             }
-            deadZoneCount = 0;
+
+            if (accelConfirmed) {
+                // Already confirmed — integrate directly (az stays as-is)
+            } else {
+                // Buffer for confirmation
+                confirmAz[confirmCount] = az;
+                confirmDt[confirmCount] = dtSec;
+                confirmCount++;
+                if (confirmCount >= ACCEL_CONFIRM_COUNT) {
+                    // Confirmed as real acceleration — flush entire buffer
+                    for (int i = 0; i < confirmCount; i++) {
+                        rawVelZ += confirmAz[i] * confirmDt[i];
+                    }
+                    confirmCount = 0;
+                    accelConfirmed = true;
+                }
+                az = 0f; // not yet confirmed or already flushed — don't double-count
+            }
         }
 
         // Step 3: Pure integration
