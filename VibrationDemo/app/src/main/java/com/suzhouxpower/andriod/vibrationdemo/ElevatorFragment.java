@@ -45,25 +45,31 @@ import java.util.Locale;
  * Elevator velocity & direction fragment.
  *
  * Signal chain (Z-axis only):
- *   TYPE_ACCELEROMETER → subtract gravity baseline (measured during warmup) → integrate → LP 5Hz (smooth)
+ *   TYPE_ACCELEROMETER → subtract gravity baseline (warmup) → dead zone gate →
+ *   confirmation buffer → integrate → LP 5Hz (smooth)
  *
- * Gravity removal: direct subtraction of the average raw Z during warmup (device stationary).
- * This preserves real constant acceleration — unlike HP filter which removes it as "DC".
+ * Acceleration processing (Step 2):
+ *   1. Dead zone: |az| < ACCEL_DRIFT_GATE (0.06) → suppress as vibration/drift.
+ *      Suppressed values are buffered; recovered on exit if |az| > 0.05 and streak <= 8.
+ *   2. Confirmation gate: |az| >= ACCEL_DRIFT_GATE → buffer until >= 3 consecutive
+ *      above-threshold samples confirm real acceleration. Short streaks are discarded as vibration.
+ *   3. Once confirmed (accelConfirmed=true), above-threshold samples integrate directly
+ *      until az drops below ACCEL_DRIFT_GATE again.
  *
- * Drift correction: dead zone at 0.1 m/s² suppresses vibration/drift noise.
+ * Direction state machine (Step 5):
+ *   STATIONARY → UP/DOWN: requires sustained accel above ACCEL_MOVE_START for MOVE_CONFIRM_NS.
+ *   Direction is locked once UP/DOWN — never flips mid-ride.
  *
- * Movement detection: requires sustained acceleration above ACCEL_MOVE_START for MOVE_CONFIRM_NS
- * to distinguish real elevator movement from sensor noise during stationary.
- *
- * Stop detection: two paths —
- *   A) velocity drops below threshold for settle time
- *   B) velocity sign reversal during deceleration (integration overshoot)
+ * Stop detection — three paths to STATIONARY:
+ *   A) While STATIONARY: velocity near zero for SETTLE_SHORT_NS → force reset
+ *   B) While locked: velocity drops below threshold for settle time
+ *   C) While locked: velocity sign reversal during deceleration (integration overshoot)
  */
 public class ElevatorFragment extends Fragment implements SensorEventListener {
 
     private static final int MAX_DATA_POINTS = 200;
     private static final float LP_CUTOFF_HZ = 5.0f;        // smooth elevator vibration for direction
-    private static final float ACCEL_DRIFT_GATE = 0.06f;    // m/s² — gate for drift correction during STATIONARY
+    private static final float ACCEL_DRIFT_GATE = 0.06f;    // m/s² — dead zone threshold; |az| below this is vibration/drift
     private static final float NOISE_THRESHOLD  = 0.15f;    // m/s — above max drift, below real movement
     private static final long SETTLE_SHORT_NS  = 500_000_000L;  // 0.5s for low-speed movements
     private static final long SETTLE_LONG_NS   = 1_000_000_000L; // 1.0s after high-speed movement
@@ -74,7 +80,7 @@ public class ElevatorFragment extends Fragment implements SensorEventListener {
     private static final float SIGN_FLIP_STOP_MM_S = 200f;  // mm/s — minimum peak speed for sign-flip stop
     private static final int DEAD_ZONE_BUFFER_MAX = 8;      // max consecutive dead-zone samples eligible for recovery
     private static final float DEAD_ZONE_RESUME_THRESHOLD = 0.05f; // m/s² — above this, suppressed value is real accel
-    private static final int ACCEL_CONFIRM_COUNT = 3;       // need > 3 consecutive above-threshold samples to confirm
+    private static final int ACCEL_CONFIRM_COUNT = 3;       // need >= 3 consecutive above-threshold samples to confirm
 
     // Direction constants
     private static final int DIR_STATIONARY = 0;
@@ -109,7 +115,7 @@ public class ElevatorFragment extends Fragment implements SensorEventListener {
 
     // Velocity state (Z-axis only)
     private float rawVelZ = 0f;        // pure integrated velocity
-    private float displayVelZ = 0f;    // after drift filter — for chart
+    private float displayVelZ = 0f;    // integrated velocity for chart
     private float smoothVelZ = 0f;     // after LP filter — for direction judgment
 
     private int dataIndex = 0;
@@ -118,21 +124,23 @@ public class ElevatorFragment extends Fragment implements SensorEventListener {
 
     // Direction state machine
     private int direction = DIR_STATIONARY;
-    private long belowThresholdStartNs = 0;
-    private float peakAbsSpeedMmS = 0f;       // peak |speed| during current movement
+    private long belowThresholdStartNs = 0;         // timestamp when velocity first dropped below threshold
+    private float peakAbsSpeedMmS = 0f;              // peak |speed| during current movement
 
-    // Dead zone recovery buffer
+    // Dead zone recovery buffer: stores suppressed below-threshold az values
+    // that may be recovered if the dead zone exit has significant values
     private final float[] deadZoneAz = new float[DEAD_ZONE_BUFFER_MAX];
     private final float[] deadZoneDt = new float[DEAD_ZONE_BUFFER_MAX];
     private int deadZoneCount = 0;
 
-    // Above-threshold confirmation buffer
+    // Above-threshold confirmation buffer: stores above-threshold az values
+    // until >= ACCEL_CONFIRM_COUNT consecutive samples confirm real acceleration
     private final float[] confirmAz = new float[ACCEL_CONFIRM_COUNT + 1];
     private final float[] confirmDt = new float[ACCEL_CONFIRM_COUNT + 1];
     private int confirmCount = 0;
-    private boolean accelConfirmed = false;
-    private int confirmingDirection = DIR_STATIONARY;  // direction being confirmed by acceleration
-    private long confirmStartNs = 0;                   // timestamp when acceleration confirmation started
+    private boolean accelConfirmed = false;           // true once initial confirmation is done; az integrates directly
+    private int confirmingDirection = DIR_STATIONARY; // direction being confirmed for state machine (UP/DOWN)
+    private long confirmStartNs = 0;                  // timestamp when direction confirmation started
 
     @Override
     public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container,
@@ -388,28 +396,29 @@ public class ElevatorFragment extends Fragment implements SensorEventListener {
             return;
         }
 
-        // Step 2: Direct gravity subtraction — preserves real constant acceleration
+        // Step 2: Gravity subtraction + dead zone + confirmation gate
         float az = rawZ - gravityBaseline;
-        float originalAz = az;
+        float originalAz = az; // preserve for CSV before dead zone modifies az
 
-        // Dead zone + confirmation gate:
-        // |az| < ACCEL_DRIFT_GATE → suppress into dead-zone buffer (vibration/drift)
-        // |az| >= ACCEL_DRIFT_GATE → buffer for confirmation; only integrate after >= 3 consecutive samples
-        //   (real acceleration is sustained; vibration breaks the streak)
+        // --- Dead zone: |az| < ACCEL_DRIFT_GATE (0.06) → suppress as vibration/drift ---
         if (Math.abs(az) < ACCEL_DRIFT_GATE) {
-            // Below threshold — break confirmation streak, discard buffered above-threshold values
+            // Reset confirmation state — streak is broken
             confirmCount = 0;
             accelConfirmed = false;
 
-            // Dead zone recovery buffer (existing logic)
+            // Buffer the suppressed value; may be recovered on dead zone exit
             if (deadZoneCount < DEAD_ZONE_BUFFER_MAX) {
                 deadZoneAz[deadZoneCount] = az;
                 deadZoneDt[deadZoneCount] = dtSec;
             }
             deadZoneCount++;
             az = 0f;
+
+        // --- Above threshold: |az| >= ACCEL_DRIFT_GATE → confirmation gate ---
         } else {
-            // Above threshold — flush dead-zone recovery buffer if eligible
+            // Flush dead-zone recovery buffer on exit:
+            // If streak was <= 8 AND any |az| > 0.05, those values were real acceleration
+            // near the threshold boundary — integrate them back.
             if (deadZoneCount > 0) {
                 if (deadZoneCount <= DEAD_ZONE_BUFFER_MAX) {
                     boolean hasSignificant = false;
@@ -429,21 +438,22 @@ public class ElevatorFragment extends Fragment implements SensorEventListener {
             }
 
             if (accelConfirmed) {
-                // Already confirmed — integrate directly (az stays as-is)
+                // Already confirmed — az integrates directly (passes through to Step 3)
             } else {
-                // Buffer for confirmation
+                // Buffer until >= 3 consecutive above-threshold samples confirm real acceleration.
+                // Short streaks are discarded as vibration when az drops below threshold.
                 confirmAz[confirmCount] = az;
                 confirmDt[confirmCount] = dtSec;
                 confirmCount++;
                 if (confirmCount >= ACCEL_CONFIRM_COUNT) {
-                    // Confirmed as real acceleration — flush entire buffer
+                    // Confirmed: flush entire buffer into velocity
                     for (int i = 0; i < confirmCount; i++) {
                         rawVelZ += confirmAz[i] * confirmDt[i];
                     }
                     confirmCount = 0;
                     accelConfirmed = true;
                 }
-                az = 0f; // not yet confirmed or already flushed — don't double-count
+                az = 0f; // suppress: either not yet confirmed, or already flushed above
             }
         }
 
@@ -451,7 +461,7 @@ public class ElevatorFragment extends Fragment implements SensorEventListener {
         rawVelZ += az * dtSec;
         displayVelZ = rawVelZ;
 
-        // Step 5: Low-pass filter on display velocity for direction judgment
+        // Step 4: Low-pass filter on display velocity for direction judgment
         if (smoothEnabled) {
             lpFilter.update(dtSec);
             float[] lpOut = lpFilter.apply(0, 0, displayVelZ);
@@ -460,24 +470,24 @@ public class ElevatorFragment extends Fragment implements SensorEventListener {
             smoothVelZ = displayVelZ;
         }
 
-        // Step 6: Direction state machine
-        // Three phases: STATIONARY → confirming → locked (UP/DOWN)
-        // Movement start requires sustained acceleration above ACCEL_MOVE_START
-        // Three paths to STATIONARY:
-        //   A) velocity drops below threshold for settle time
-        //   B) velocity sign reversal during deceleration → elevator stopped
+        // Step 5: Direction state machine
+        // Direction is LOCKED once UP or DOWN — never flips mid-ride.
+        // STATIONARY → UP/DOWN: requires sustained accel above ACCEL_MOVE_START for MOVE_CONFIRM_NS.
+        // UP/DOWN → STATIONARY: three paths —
+        //   A) While STATIONARY: velocity near zero for settle time → force reset
+        //   B) While locked: velocity drops below threshold for settle time
+        //   C) While locked: velocity sign reversal during deceleration
         float absSmooth = Math.abs(smoothVelZ);
 
         if (direction == DIR_STATIONARY) {
-            // Acceleration-based movement confirmation:
-            // Require sustained acceleration above threshold to distinguish real movement from drift
+            // --- Direction confirmation: require sustained accel to distinguish from noise ---
             if (Math.abs(az) > ACCEL_MOVE_START) {
                 int moveDir = (az > 0) ? DIR_UP : DIR_DOWN;
                 if (confirmStartNs == 0 || confirmingDirection != moveDir) {
                     confirmStartNs = now;
                     confirmingDirection = moveDir;
                 } else if (now - confirmStartNs >= MOVE_CONFIRM_NS) {
-                    // Confirmed: sustained acceleration in one direction
+                    // Direction confirmed: sustained acceleration in one direction
                     direction = moveDir;
                     peakAbsSpeedMmS = absSmooth * 1000f;
                     confirmStartNs = 0;
@@ -488,7 +498,7 @@ public class ElevatorFragment extends Fragment implements SensorEventListener {
                 confirmStartNs = 0;
             }
 
-            // Force velocity reset if lingering near zero during STATIONARY
+            // --- Path A: force reset if velocity lingers near zero during STATIONARY ---
             if (absSmooth < NOISE_THRESHOLD) {
                 if (belowThresholdStartNs == 0) {
                     belowThresholdStartNs = now;
@@ -503,7 +513,7 @@ public class ElevatorFragment extends Fragment implements SensorEventListener {
             peakAbsSpeedMmS = Math.max(peakAbsSpeedMmS, absSmooth * 1000f);
             confirmStartNs = 0;
 
-            // Path A: velocity dropped below threshold — start settle timer
+            // --- Path B: velocity dropped below threshold while locked — settle timer ---
             if (absSmooth < NOISE_THRESHOLD) {
                 if (belowThresholdStartNs == 0) {
                     belowThresholdStartNs = now;
@@ -518,9 +528,7 @@ public class ElevatorFragment extends Fragment implements SensorEventListener {
             }
 
 
-            // Path B: velocity sign reversal — elevator stopped, integration overshooting
-            // When direction is DOWN but velocity becomes positive (or vice versa),
-            // the elevator has stopped and deceleration has overcompensated.
+            // --- Path C: velocity sign reversal — deceleration overshoot, elevator stopped ---
             if (peakAbsSpeedMmS > SIGN_FLIP_STOP_MM_S) {
                 if ((direction == DIR_DOWN && smoothVelZ > NOISE_THRESHOLD) ||
                     (direction == DIR_UP   && smoothVelZ < -NOISE_THRESHOLD)) {
@@ -531,14 +539,14 @@ public class ElevatorFragment extends Fragment implements SensorEventListener {
             // Direction stays locked regardless of smoothVelZ sign
         }
 
-        // Step 7: Update UI — use smooth velocity for stable speed display
+        // Step 6: Update UI — use smooth velocity for stable speed display
         float speedMmS = Math.abs(smoothVelZ) * 1000f; // m/s → mm/s
         updateDirectionUI(speedMmS);
 
-        // Step 8: Update chart
+        // Step 7: Update chart
         addToChart(displayVelZ * 1000f, smoothVelZ * 1000f);
 
-        // Step 9: Record sample if recording
+        // Step 8: Record sample if recording
         if (isRecording && csvBuffer != null) {
             if (recordStartNs == 0) recordStartNs = now;
             long elapsedMs = (now - recordStartNs) / 1_000_000L;
