@@ -487,6 +487,17 @@ public class ElevatorFragment extends Fragment implements SensorEventListener {
             } else {
                 confirmStartNs = 0;
             }
+
+            // Force velocity reset if lingering near zero during STATIONARY
+            if (absSmooth < NOISE_THRESHOLD) {
+                if (belowThresholdStartNs == 0) {
+                    belowThresholdStartNs = now;
+                } else if (now - belowThresholdStartNs >= SETTLE_SHORT_NS) {
+                    transitionToStationary();
+                }
+            } else {
+                belowThresholdStartNs = 0;
+            }
         } else {
             // Direction is locked — track peak speed
             peakAbsSpeedMmS = Math.max(peakAbsSpeedMmS, absSmooth * 1000f);
