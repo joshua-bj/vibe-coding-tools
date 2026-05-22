@@ -72,6 +72,8 @@ public class ElevatorFragment extends Fragment implements SensorEventListener {
     private static final float ACCEL_MOVE_START = 0.10f;    // m/s² — min accel to confirm real movement
     private static final long MOVE_CONFIRM_NS  = 200_000_000L;  // 200ms sustained accel to confirm movement
     private static final float SIGN_FLIP_STOP_MM_S = 200f;  // mm/s — minimum peak speed for sign-flip stop
+    private static final int DEAD_ZONE_BUFFER_MAX = 8;      // max consecutive dead-zone samples eligible for recovery
+    private static final float DEAD_ZONE_RESUME_THRESHOLD = 0.05f; // m/s² — above this, suppressed value is real accel
 
     // Direction constants
     private static final int DIR_STATIONARY = 0;
@@ -117,6 +119,11 @@ public class ElevatorFragment extends Fragment implements SensorEventListener {
     private int direction = DIR_STATIONARY;
     private long belowThresholdStartNs = 0;
     private float peakAbsSpeedMmS = 0f;       // peak |speed| during current movement
+
+    // Dead zone recovery buffer
+    private final float[] deadZoneAz = new float[DEAD_ZONE_BUFFER_MAX];
+    private final float[] deadZoneDt = new float[DEAD_ZONE_BUFFER_MAX];
+    private int deadZoneCount = 0;
     private int confirmingDirection = DIR_STATIONARY;  // direction being confirmed by acceleration
     private long confirmStartNs = 0;                   // timestamp when acceleration confirmation started
 
@@ -166,7 +173,7 @@ public class ElevatorFragment extends Fragment implements SensorEventListener {
         csvBuffer = new StringBuilder();
         // UTF-8 BOM for Excel compatibility
         csvBuffer.append('\uFEFF');
-        csvBuffer.append("time_ms,accel_z_mps2,velocity_mm_s,smooth_mm_s,direction\n");
+        csvBuffer.append("time_ms,original_az,accel_z_mps2,velocity_mm_s,smooth_mm_s,direction\n");
         btnRecord.setText("Stop");
         btnRecord.setStrokeColorResource(android.R.color.holo_red_dark);
         btnRecord.setTextColor(Color.parseColor("#F44336"));
@@ -281,6 +288,7 @@ public class ElevatorFragment extends Fragment implements SensorEventListener {
         peakAbsSpeedMmS = 0;
         confirmStartNs = 0;
         confirmingDirection = DIR_STATIONARY;
+        deadZoneCount = 0;
         clearChart();
     }
 
@@ -328,6 +336,7 @@ public class ElevatorFragment extends Fragment implements SensorEventListener {
         peakAbsSpeedMmS = 0;
         confirmStartNs = 0;
         confirmingDirection = DIR_STATIONARY;
+        deadZoneCount = 0;
         accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
         if (accelerometer != null) {
             sensorManager.registerListener(this, accelerometer, SensorManager.SENSOR_DELAY_UI);
@@ -370,8 +379,37 @@ public class ElevatorFragment extends Fragment implements SensorEventListener {
 
         // Step 2: Direct gravity subtraction — preserves real constant acceleration
         float az = rawZ - gravityBaseline;
-        // Dead zone: |az| < 0.1 → treat as zero (vibration or drift)
-        if (Math.abs(az) < ACCEL_DRIFT_GATE) az = 0f;
+        float originalAz = az;
+
+        // Dead zone with recovery buffer:
+        // |az| < 0.1 → suppress (vibration/drift), but buffer the original value.
+        // If the dead zone lasts <= 8 samples AND any original |az| > 0.05,
+        // the suppression was at the threshold boundary — flush buffered values back.
+        if (Math.abs(az) < ACCEL_DRIFT_GATE) {
+            if (deadZoneCount < DEAD_ZONE_BUFFER_MAX) {
+                deadZoneAz[deadZoneCount] = az;
+                deadZoneDt[deadZoneCount] = dtSec;
+            }
+            deadZoneCount++;
+            az = 0f;
+        } else if (deadZoneCount > 0) {
+            // Exiting dead zone — check if buffered values should be recovered
+            if (deadZoneCount <= DEAD_ZONE_BUFFER_MAX) {
+                boolean hasSignificant = false;
+                for (int i = 0; i < deadZoneCount; i++) {
+                    if (Math.abs(deadZoneAz[i]) > DEAD_ZONE_RESUME_THRESHOLD) {
+                        hasSignificant = true;
+                        break;
+                    }
+                }
+                if (hasSignificant) {
+                    for (int i = 0; i < deadZoneCount; i++) {
+                        rawVelZ += deadZoneAz[i] * deadZoneDt[i];
+                    }
+                }
+            }
+            deadZoneCount = 0;
+        }
 
         // Step 3: Pure integration
         rawVelZ += az * dtSec;
@@ -458,6 +496,7 @@ public class ElevatorFragment extends Fragment implements SensorEventListener {
             if (recordStartNs == 0) recordStartNs = now;
             long elapsedMs = (now - recordStartNs) / 1_000_000L;
             csvBuffer.append(elapsedMs).append(',')
+                     .append(String.format(Locale.US, "%.4f", originalAz)).append(',')
                      .append(String.format(Locale.US, "%.4f", az)).append(',')
                      .append(String.format(Locale.US, "%.2f", displayVelZ * 1000f)).append(',')
                      .append(String.format(Locale.US, "%.2f", smoothVelZ * 1000f)).append(',')
