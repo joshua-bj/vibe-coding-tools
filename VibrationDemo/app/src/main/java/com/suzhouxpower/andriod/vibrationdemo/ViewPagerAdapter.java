@@ -19,12 +19,13 @@ public class ViewPagerAdapter extends FragmentStateAdapter {
             case 2: return new VelocityFragment();
             case 3: return new VoiceprintFragment();
             case 4: return new ElevatorFragment();
+            case 5: return new BarometerFragment();
             default: return new AccelerometerFragment();
         }
     }
 
     @Override
     public int getItemCount() {
-        return 5;
+        return 6;
     }
 }
