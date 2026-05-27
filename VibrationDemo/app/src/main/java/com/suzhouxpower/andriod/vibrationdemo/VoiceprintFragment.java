@@ -29,9 +29,7 @@ import com.github.mikephil.charting.data.BarEntry;
 import com.github.mikephil.charting.formatter.ValueFormatter;
 
 import java.util.ArrayList;
-import java.util.Locale;
-
-import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 
 public class VoiceprintFragment extends Fragment {
@@ -300,8 +298,8 @@ public class VoiceprintFragment extends Fragment {
             if (now - lastUpdateTime < UPDATE_INTERVAL_MS) continue;
             lastUpdateTime = now;
 
-            int peakIdx = FftProcessor.peakIndex(mag);
-            float peakFreq = peakIdx * freqResolution;
+            List<FftProcessor.FftPeak> peaks = FftProcessor.findDominantPeaks(
+                    mag, SAMPLE_RATE, displayBins, size);
 
             ArrayList<BarEntry> entries = new ArrayList<>(displayBins);
             for (int i = 0; i < displayBins; i++) {
@@ -311,13 +309,26 @@ public class VoiceprintFragment extends Fragment {
             float barWidth = freqResolution * 0.8f;
 
             if (isAdded() && getActivity() != null) {
-                requireActivity().runOnUiThread(() -> updateChart(entries, peakFreq, barWidth));
+                requireActivity().runOnUiThread(() -> updateChart(entries, peaks, barWidth));
             }
         }
     }
 
-    private void updateChart(ArrayList<BarEntry> entries, float peakFreq, float barWidth) {
-        tvPeakFreq.setText(String.format(Locale.US, "Peak: %.1f Hz", peakFreq));
+    private void updateChart(ArrayList<BarEntry> entries, List<FftProcessor.FftPeak> peaks, float barWidth) {
+        if (peaks.isEmpty()) {
+            tvPeakFreq.setText("Peak: -- Hz");
+        } else if (peaks.size() == 1) {
+            tvPeakFreq.setText(String.format(Locale.US,
+                    "Dominant: %.1f Hz", peaks.get(0).frequencyHz));
+        } else {
+            StringBuilder sb = new StringBuilder("Dominant: ");
+            for (int i = 0; i < peaks.size(); i++) {
+                if (i > 0) sb.append(", ");
+                sb.append(String.format(Locale.US, "%.1f", peaks.get(i).frequencyHz));
+            }
+            sb.append(" Hz");
+            tvPeakFreq.setText(sb.toString());
+        }
 
         BarDataSet set = new BarDataSet(entries, "Magnitude");
         set.setColor(Color.parseColor("#2196F3"));
